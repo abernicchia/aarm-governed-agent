@@ -1,0 +1,34 @@
+name: governed-assistant-safety
+version: "1.0"
+description: Block prompt injection and dangerous patterns for the governed assistant.
+defaults:
+  action: allow
+  max_tokens: 4096
+  max_tool_calls: 10
+rules:
+  - name: block-prompt-injection
+    condition:
+      field: message
+      operator: matches
+      value: '(?i)ignore previous instructions'
+    action: deny
+    priority: 100
+    message: Prompt injection patterns are blocked by governance policy.
+
+  - name: block-destructive-sql
+    condition:
+      field: message
+      operator: matches
+      value: '(?i)DROP TABLE'
+    action: deny
+    priority: 95
+    message: Destructive SQL patterns are blocked.
+
+  - name: block-shell-destruction
+    condition:
+      field: message
+      operator: matches
+      value: '(?i)rm\s+-rf'
+    action: deny
+    priority: 90
+    message: Destructive shell patterns are blocked.

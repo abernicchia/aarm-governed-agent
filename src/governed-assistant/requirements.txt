@@ -1,0 +1,5 @@
+agent-governance-toolkit[full]>=4.1.0
+agt-policies>=5.0.0
+agent-framework-foundry>=1.10.3
+agent-framework-foundry-hosting>=1.0.0a260630
+python-dotenv

@@ -1,0 +1,391 @@
+[2026-07-25T23:32:10+02:00] Retry: =====> Try=1 for GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env?api-version=2025-06-01
+[2026-07-25T23:32:12+02:00] Authentication: AzureDeveloperCLICredential.GetToken() acquired a token for scope "https://management.core.windows.net//.default"
+[2026-07-25T23:32:12+02:00] Request: ==> OUTGOING REQUEST (Try=1)
+   GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env?api-version=2025-06-01
+   Accept: application/json
+   Authorization: REDACTED
+   User-Agent: azsdk-go-armcognitiveservices/v2.0.0 (go1.26.4-X:loopvar; darwin),azd-ext-azure-ai-agents/1.0.0-beta.7
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+
+[2026-07-25T23:32:12+02:00] Response: ==> REQUEST/RESPONSE (Try=1/475.35075ms, OpTime=475.452583ms) -- RESPONSE RECEIVED
+   GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env?api-version=2025-06-01
+   Accept: application/json
+   Authorization: REDACTED
+   User-Agent: azsdk-go-armcognitiveservices/v2.0.0 (go1.26.4-X:loopvar; darwin),azd-ext-azure-ai-agents/1.0.0-beta.7
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+   --------------------------------------------------------------------------------
+   RESPONSE Status: 200 OK
+   Cache-Control: no-cache
+   Content-Length: 1217
+   Content-Type: application/json; charset=utf-8
+   Date: Sat, 25 Jul 2026 21:32:11 GMT
+   Etag: "ca0214b7-0000-5b00-0000-6a6527f60000"
+   Expires: -1
+   Pragma: no-cache
+   Strict-Transport-Security: REDACTED
+   X-Cache: REDACTED
+   X-Content-Type-Options: REDACTED
+   X-Envoy-Upstream-Service-Time: REDACTED
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+   X-Ms-Ratelimit-Remaining-Subscription-Global-Reads: REDACTED
+   X-Ms-Ratelimit-Remaining-Subscription-Reads: REDACTED
+   X-Ms-Request-Id: 120d664a-3150-486b-8227-b0c9246c1a53
+   X-Ms-Routing-Request-Id: REDACTED
+   X-Msedge-Ref: REDACTED
+
+[2026-07-25T23:32:12+02:00] Retry: response 200
+[2026-07-25T23:32:12+02:00] Retry: exit due to non-retriable status code
+[2026-07-25T23:32:12+02:00] Retry: =====> Try=1 for GET https://graph.microsoft.com/v1.0/me
+[2026-07-25T23:32:14+02:00] Authentication: AzureDeveloperCLICredential.GetToken() acquired a token for scope "https://graph.microsoft.com/.default"
+[2026-07-25T23:32:14+02:00] Request: ==> OUTGOING REQUEST (Try=1)
+   GET https://graph.microsoft.com/v1.0/me
+   Authorization: REDACTED
+   User-Agent: azsdk-go-graph/1.0.0 (go1.26.4-X:loopvar; darwin)
+
+[2026-07-25T23:32:14+02:00] Response: ==> REQUEST/RESPONSE (Try=1/665.873458ms, OpTime=665.907292ms) -- RESPONSE RECEIVED
+   GET https://graph.microsoft.com/v1.0/me
+   Authorization: REDACTED
+   User-Agent: azsdk-go-graph/1.0.0 (go1.26.4-X:loopvar; darwin)
+   --------------------------------------------------------------------------------
+   RESPONSE Status: 200 OK
+   Cache-Control: no-cache
+   Client-Request-Id: REDACTED
+   Content-Type: application/json;odata.metadata=minimal;odata.streaming=true;IEEE754Compatible=false;charset=utf-8
+   Date: Sat, 25 Jul 2026 21:32:14 GMT
+   Odata-Version: REDACTED
+   Request-Id: c822b606-9535-420d-bd64-95f015b5a93e
+   Strict-Transport-Security: REDACTED
+   Vary: REDACTED
+   X-Ms-Ags-Diagnostic: REDACTED
+   X-Ms-Resource-Unit: REDACTED
+
+[2026-07-25T23:32:14+02:00] Retry: response 200
+[2026-07-25T23:32:14+02:00] Retry: exit due to non-retriable status code
+[2026-07-25T23:32:14+02:00] Retry: =====> Try=1 for GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env/providers/Microsoft.Authorization/roleAssignments?%24filter=REDACTED&api-version=2022-04-01
+[2026-07-25T23:32:16+02:00] Authentication: AzureDeveloperCLICredential.GetToken() acquired a token for scope "https://management.core.windows.net//.default"
+[2026-07-25T23:32:16+02:00] Request: ==> OUTGOING REQUEST (Try=1)
+   GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env/providers/Microsoft.Authorization/roleAssignments?%24filter=REDACTED&api-version=2022-04-01
+   Accept: application/json
+   Authorization: REDACTED
+   User-Agent: azsdk-go-armauthorization/v3.0.0-beta.2 (go1.26.4-X:loopvar; darwin)
+
+[2026-07-25T23:32:16+02:00] Response: ==> REQUEST/RESPONSE (Try=1/693.402125ms, OpTime=693.439708ms) -- RESPONSE RECEIVED
+   GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env/providers/Microsoft.Authorization/roleAssignments?%24filter=REDACTED&api-version=2022-04-01
+   Accept: application/json
+   Authorization: REDACTED
+   User-Agent: azsdk-go-armauthorization/v3.0.0-beta.2 (go1.26.4-X:loopvar; darwin)
+   --------------------------------------------------------------------------------
+   RESPONSE Status: 200 OK
+   Cache-Control: no-cache
+   Content-Length: 2625
+   Content-Type: application/json; charset=utf-8
+   Date: Sat, 25 Jul 2026 21:32:15 GMT
+   Expires: -1
+   Pragma: no-cache
+   Strict-Transport-Security: REDACTED
+   X-Cache: REDACTED
+   X-Content-Type-Options: REDACTED
+   X-Ms-Correlation-Request-Id: REDACTED
+   X-Ms-Operation-Identifier: REDACTED
+   X-Ms-Ratelimit-Remaining-Subscription-Global-Reads: REDACTED
+   X-Ms-Ratelimit-Remaining-Subscription-Reads: REDACTED
+   X-Ms-Request-Id: ca19d0d4-b35c-4324-b65d-22b38e6fc60d
+   X-Ms-Routing-Request-Id: REDACTED
+   X-Msedge-Ref: REDACTED
+
+[2026-07-25T23:32:16+02:00] Retry: response 200
+[2026-07-25T23:32:16+02:00] Retry: exit due to non-retriable status code
+[2026-07-25T23:32:16+02:00] Retry: =====> Try=1 for GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env/providers/Microsoft.Authorization/roleAssignments?%24filter=REDACTED&api-version=2022-04-01
+[2026-07-25T23:32:18+02:00] Authentication: AzureDeveloperCLICredential.GetToken() acquired a token for scope "https://management.core.windows.net//.default"
+[2026-07-25T23:32:18+02:00] Request: ==> OUTGOING REQUEST (Try=1)
+   GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env/providers/Microsoft.Authorization/roleAssignments?%24filter=REDACTED&api-version=2022-04-01
+   Accept: application/json
+   Authorization: REDACTED
+   User-Agent: azsdk-go-armauthorization/v3.0.0-beta.2 (go1.26.4-X:loopvar; darwin)
+
+[2026-07-25T23:32:18+02:00] Response: ==> REQUEST/RESPONSE (Try=1/135.964ms, OpTime=136.021542ms) -- RESPONSE RECEIVED
+   GET https://management.azure.com/subscriptions/0697faa1-9f90-46fd-834c-4284ccf652a7/resourceGroups/rg-test-env/providers/Microsoft.CognitiveServices/accounts/cog-4e2c5znawcaqe/projects/test-env/providers/Microsoft.Authorization/roleAssignments?%24filter=REDACTED&api-version=2022-04-01
+   Accept: application/json
+   Authorization: REDACTED
+   User-Agent: azsdk-go-armauthorization/v3.0.0-beta.2 (go1.26.4-X:loopvar; darwin)
+   --------------------------------------------------------------------------------
+   RESPONSE Status: 200 OK
+   Cache-Control: no-cache
+   Content-Length: 2625
+   Content-Type: application/json; charset=utf-8
+   Date: Sat, 25 Jul 2026 21:32:17 GMT
+   Expires: -1
+   Pragma: no-cache
+   Strict-Transport-Security: REDACTED
+   X-Cache: REDACTED
+   X-Content-Type-Options: REDACTED
+   X-Ms-Correlation-Request-Id: REDACTED
+   X-Ms-Operation-Identifier: REDACTED
+   X-Ms-Ratelimit-Remaining-Subscription-Global-Reads: REDACTED
+   X-Ms-Ratelimit-Remaining-Subscription-Reads: REDACTED
+   X-Ms-Request-Id: 3bcdef30-bafc-4c27-b41a-1aed83720eee
+   X-Ms-Routing-Request-Id: REDACTED
+   X-Msedge-Ref: REDACTED
+
+[2026-07-25T23:32:18+02:00] Retry: response 200
+[2026-07-25T23:32:18+02:00] Retry: exit due to non-retriable status code
+[2026-07-25T23:32:19+02:00] Authentication: AzureDeveloperCLICredential.GetToken() acquired a token for scope "https://ai.azure.com/.default"
+[2026-07-25T23:32:19+02:00] Retry: =====> Try=1 for GET https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env/agents/governed-assistant?api-version=v1
+[2026-07-25T23:32:19+02:00] Request: ==> OUTGOING REQUEST (Try=1)
+   GET https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env/agents/governed-assistant?api-version=v1
+   Authorization: REDACTED
+   User-Agent: azsdk-go-azure-ai-agents/v1.0.0 (go1.26.4-X:loopvar; darwin),azd-ext-azure-ai-agents/1.0.0-beta.7
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+   Request contained no body
+
+[2026-07-25T23:32:20+02:00] Response: ==> REQUEST/RESPONSE (Try=1/520.452166ms, OpTime=520.497291ms) -- RESPONSE RECEIVED
+   GET https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env/agents/governed-assistant?api-version=v1
+   Authorization: REDACTED
+   User-Agent: azsdk-go-azure-ai-agents/v1.0.0 (go1.26.4-X:loopvar; darwin),azd-ext-azure-ai-agents/1.0.0-beta.7
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+   --------------------------------------------------------------------------------
+   RESPONSE Status: 200 OK
+   Access-Control-Expose-Headers: REDACTED
+   Api-Supported-Versions: REDACTED
+   Apim-Request-Id: REDACTED
+   Azureml-Served-By-Cluster: REDACTED
+   Content-Type: application/json; charset=utf-8
+   Date: Sat, 25 Jul 2026 21:32:19 GMT
+   Request-Context: REDACTED
+   Strict-Transport-Security: REDACTED
+   Vary: REDACTED
+   X-Content-Type-Options: REDACTED
+   X-Ms-Region: REDACTED
+   X-Ms-Response-Type: REDACTED
+   X-Request-Id: 3866170b49336095aace52d3e4d83160
+   --------------------------------------------------------------------------------
+{
+  "object": "agent",
+  "id": "governed-assistant",
+  "name": "governed-assistant",
+  "state": "enabled",
+  "versions": {
+    "latest": {
+      "metadata": {
+        "enableVnextExperience": "true"
+      },
+      "object": "agent.version",
+      "id": "governed-assistant:2",
+      "name": "governed-assistant",
+      "version": "2",
+      "description": "Minimal governed assistant with AGT middleware on Azure Foundry.",
+      "created_at": 1785014796,
+      "definition": {
+        "kind": "hosted",
+        "container_protocol_versions": [],
+        "cpu": "0.5",
+        "memory": "1Gi",
+        "environment_variables": {
+          "AZURE_AI_MODEL_DEPLOYMENT_NAME": "gpt-5-mini",
+          "FOUNDRY_PROJECT_ENDPOINT": "https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env"
+        },
+        "protocol_versions": [
+          {
+            "protocol": "responses",
+            "version": "2.0.0"
+          }
+        ],
+        "code_configuration": {
+          "runtime": "python_3_13",
+          "entry_point": [
+            "python",
+            "main.py"
+          ],
+          "dependency_resolution": "remote_build",
+          "content_hash": "0dc1eff9dea15c7c8a70f7f56a5ce4bb780626db5293431239d77301dc68ed4f"
+        }
+      },
+      "draft": false,
+      "status": "active",
+      "instance_identity": {
+        "principal_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233",
+        "client_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233"
+      },
+      "blueprint": {
+        "principal_id": "d2617881-79c8-432d-9607-1212e0018cf0",
+        "client_id": "31e4e7c9-d3dd-4d07-a36e-7f4c95abdb62"
+      },
+      "blueprint_reference": {
+        "type": "ManagedAgentIdentityBlueprint",
+        "blueprint_id": "governed-assistant-d943d"
+      },
+      "agent_guid": "d943d9f3-a152-41eb-835d-c5c570ea2293"
+    }
+  },
+  "agent_endpoint": {
+    "version_selector": {
+      "version_selection_rules": [
+        {
+          "type": "FixedRatio",
+          "agent_version": "@latest",
+          "traffic_percentage": 100
+        }
+      ]
+    },
+    "protocols": [
+      "responses"
+    ],
+    "protocol_configuration": {
+      "responses": {}
+    },
+    "authorization_schemes": [
+      {
+        "type": "Entra"
+      }
+    ]
+  },
+  "instance_identity": {
+    "principal_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233",
+    "client_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233"
+  },
+  "blueprint": {
+    "principal_id": "d2617881-79c8-432d-9607-1212e0018cf0",
+    "client_id": "31e4e7c9-d3dd-4d07-a36e-7f4c95abdb62"
+  },
+  "blueprint_reference": {
+    "type": "ManagedAgentIdentityBlueprint",
+    "blueprint_id": "governed-assistant-d943d"
+  }
+}
+   --------------------------------------------------------------------------------
+
+[2026-07-25T23:32:20+02:00] Retry: response 200
+[2026-07-25T23:32:20+02:00] Retry: exit due to non-retriable status code
+[2026-07-25T23:32:20+02:00] Retry: =====> Try=1 for POST https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env/agents/governed-assistant?api-version=v1
+[2026-07-25T23:32:20+02:00] Request: ==> OUTGOING REQUEST (Try=1)
+   POST https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env/agents/governed-assistant?api-version=v1
+   Authorization: REDACTED
+   Content-Length: 4640
+   Content-Type: multipart/form-data; boundary=e3e6dea505876f4a39a4f12ffb36a1a45e5d903c2bb678bb6cd81c069bf4
+   User-Agent: azsdk-go-azure-ai-agents/v1.0.0 (go1.26.4-X:loopvar; darwin),azd-ext-azure-ai-agents/1.0.0-beta.7
+   X-Ms-Code-Zip-Sha256: REDACTED
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+   Skip logging body for multipart/form-data; boundary=e3e6dea505876f4a39a4f12ffb36a1a45e5d903c2bb678bb6cd81c069bf4
+
+[2026-07-25T23:32:21+02:00] Response: ==> REQUEST/RESPONSE (Try=1/1.031047167s, OpTime=1.031075625s) -- RESPONSE RECEIVED
+   POST https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env/agents/governed-assistant?api-version=v1
+   Authorization: REDACTED
+   Content-Length: 4640
+   Content-Type: multipart/form-data; boundary=e3e6dea505876f4a39a4f12ffb36a1a45e5d903c2bb678bb6cd81c069bf4
+   User-Agent: azsdk-go-azure-ai-agents/v1.0.0 (go1.26.4-X:loopvar; darwin),azd-ext-azure-ai-agents/1.0.0-beta.7
+   X-Ms-Code-Zip-Sha256: REDACTED
+   X-Ms-Correlation-Request-Id: c4555d28-afe0-af14-62e6-5cedca9845f3
+   --------------------------------------------------------------------------------
+   RESPONSE Status: 200 OK
+   Access-Control-Expose-Headers: REDACTED
+   Api-Supported-Versions: REDACTED
+   Apim-Request-Id: REDACTED
+   Azureml-Served-By-Cluster: REDACTED
+   Content-Type: application/json; charset=utf-8
+   Date: Sat, 25 Jul 2026 21:32:21 GMT
+   Request-Context: REDACTED
+   Strict-Transport-Security: REDACTED
+   Vary: REDACTED
+   X-Content-Type-Options: REDACTED
+   X-Ms-Region: REDACTED
+   X-Ms-Response-Type: REDACTED
+   X-Request-Id: 120641dd43b3731ba500ab3f613b4388
+   --------------------------------------------------------------------------------
+{
+  "object": "agent",
+  "id": "governed-assistant",
+  "name": "governed-assistant",
+  "state": "enabled",
+  "versions": {
+    "latest": {
+      "metadata": {
+        "enableVnextExperience": "true"
+      },
+      "object": "agent.version",
+      "id": "governed-assistant:2",
+      "name": "governed-assistant",
+      "version": "2",
+      "description": "Minimal governed assistant with AGT middleware on Azure Foundry.",
+      "created_at": 1785014796,
+      "definition": {
+        "kind": "hosted",
+        "container_protocol_versions": [],
+        "cpu": "0.5",
+        "memory": "1Gi",
+        "environment_variables": {
+          "AZURE_AI_MODEL_DEPLOYMENT_NAME": "gpt-5-mini",
+          "FOUNDRY_PROJECT_ENDPOINT": "https://cog-4e2c5znawcaqe.services.ai.azure.com/api/projects/test-env"
+        },
+        "protocol_versions": [
+          {
+            "protocol": "responses",
+            "version": "2.0.0"
+          }
+        ],
+        "code_configuration": {
+          "runtime": "python_3_13",
+          "entry_point": [
+            "python",
+            "main.py"
+          ],
+          "dependency_resolution": "remote_build",
+          "content_hash": "0dc1eff9dea15c7c8a70f7f56a5ce4bb780626db5293431239d77301dc68ed4f"
+        }
+      },
+      "draft": false,
+      "status": "active",
+      "instance_identity": {
+        "principal_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233",
+        "client_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233"
+      },
+      "blueprint": {
+        "principal_id": "d2617881-79c8-432d-9607-1212e0018cf0",
+        "client_id": "31e4e7c9-d3dd-4d07-a36e-7f4c95abdb62"
+      },
+      "blueprint_reference": {
+        "type": "ManagedAgentIdentityBlueprint",
+        "blueprint_id": "governed-assistant-d943d"
+      },
+      "agent_guid": "d943d9f3-a152-41eb-835d-c5c570ea2293"
+    }
+  },
+  "agent_endpoint": {
+    "version_selector": {
+      "version_selection_rules": [
+        {
+          "type": "FixedRatio",
+          "agent_version": "@latest",
+          "traffic_percentage": 100
+        }
+      ]
+    },
+    "protocols": [
+      "responses"
+    ],
+    "protocol_configuration": {
+      "responses": {}
+    },
+    "authorization_schemes": [
+      {
+        "type": "Entra"
+      }
+    ]
+  },
+  "instance_identity": {
+    "principal_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233",
+    "client_id": "0b6639ec-4252-4191-8219-8f4a5a3d9233"
+  },
+  "blueprint": {
+    "principal_id": "d2617881-79c8-432d-9607-1212e0018cf0",
+    "client_id": "31e4e7c9-d3dd-4d07-a36e-7f4c95abdb62"
+  },
+  "blueprint_reference": {
+    "type": "ManagedAgentIdentityBlueprint",
+    "blueprint_id": "governed-assistant-d943d"
+  }
+}
+   --------------------------------------------------------------------------------
+
+[2026-07-25T23:32:21+02:00] Retry: response 200
+[2026-07-25T23:32:21+02:00] Retry: exit due to non-retriable status code
+2026/07/25 23:32:21 postdeploy: no optimization candidate for governed-assistant, skipping

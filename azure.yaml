@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+requiredVersions:
+  extensions:
+    azure.ai.agents: '>=1.0.0-beta.4'
+
+name: agt-governed-assistant
+services:
+  ai-project:
+    host: azure.ai.project
+    deployments:
+      - name: gpt-5-mini
+        model:
+          format: OpenAI
+          name: gpt-5-mini
+          version: '2025-08-07'
+        sku:
+          name: GlobalStandard
+          capacity: 10
+
+  governed-assistant:
+    host: azure.ai.agent
+    metadata:
+      tags:
+        - Agent Framework
+        - Agent Governance Toolkit
+        - AGT 5.0 OPA/Rego
+        - Azure AI AgentServer
+        - Responses Protocol
+    project: src/governed-assistant
+    language: docker
+    uses:
+      - ai-project
+    kind: hosted
+    name: governed-assistant
+    description: Governed assistant with AGT 5.0 OPA/Rego policy middleware on Azure Foundry.
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    startupCommand: python main.py
+    docker:
+      path: ./Dockerfile
+      context: ../..
+    environmentVariables:
+      - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+        value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      - name: FOUNDRY_PROJECT_ENDPOINT
+        value: ${FOUNDRY_PROJECT_ENDPOINT}
+      - name: GOVERNANCE_MANIFEST
+        value: /app/policies/manifest.yaml
+    container:
+      resources:
+        cpu: '0.5'
+        memory: 1Gi
+
+infra:
+  provider: microsoft.foundry

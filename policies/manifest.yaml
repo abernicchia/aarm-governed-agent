@@ -1,0 +1,42 @@
+agent_control_specification_version: "0.3.0-alpha-agt"
+metadata:
+  name: governed-assistant-safety
+  policy_version: "2.1.0"
+extends: []
+policies:
+  governed_assistant:
+    type: rego
+    bundle: ./rego
+    query: data.governed_assistant.verdict
+intervention_points:
+  input:
+    policy_target: "$.input.body"
+    policy_target_kind: user_input
+    policy:
+      id: governed_assistant
+  pre_tool_call:
+    policy_target: "$.tool_call.args"
+    policy_target_kind: tool_args
+    policy:
+      id: governed_assistant
+    tool_name_from: "$.tool_call.name"
+tools:
+  calculator:
+    clearance: public
+  get_current_time:
+    clearance: public
+  read_file:
+    clearance: public
+  write_file:
+    clearance: public
+  send_email:
+    clearance: public
+  query_database:
+    clearance: public
+  http_request:
+    clearance: public
+  update_customer_record:
+    clearance: public
+  shell_execute:
+    clearance: denied
+approval: {}

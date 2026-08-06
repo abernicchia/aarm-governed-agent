@@ -1,0 +1,12 @@
+.venv/
+.env
+.azure/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.pytest_cache/
+audit_logs/
+*.egg-info/
+dist/
+build/
