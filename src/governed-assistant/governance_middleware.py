@@ -5,15 +5,18 @@ from __future__ import annotations
 import time
 from typing import Any, Awaitable, Callable
 
-from agent_framework import MiddlewareTermination
-from agent_os.integrations.maf_adapter import AuditTrailMiddleware, CapabilityGuardMiddleware
+from agent_framework import FunctionMiddleware, MiddlewareTermination
+from agent_os.integrations.maf_adapter import AuditTrailMiddleware
 
+from acs_host import HostContext
 from governance_audit import (
     enrich_audit_data,
     resolve_session_id,
     reset_governance_audit_context,
     set_governance_audit_context,
 )
+from governance_kernel import GovernanceKernel
+from governance_phase2 import resolve_runtime_agent_id
 from governance_session import get_session_state, parse_delegated_from
 
 
@@ -26,7 +29,7 @@ class GovernedAuditTrailMiddleware(AuditTrailMiddleware):
         call_next: Callable[[], Awaitable[None]],
     ) -> None:
         agent_name = getattr(context.agent, "name", "unknown")
-        agent_did = self.agent_did or agent_name
+        agent_did = resolve_runtime_agent_id(fallback=self.agent_did or agent_name)
         session_id = resolve_session_id(context)
         token = set_governance_audit_context(
             session_id=session_id,
@@ -50,31 +53,38 @@ class GovernedAuditTrailMiddleware(AuditTrailMiddleware):
             reset_governance_audit_context(token)
 
 
-def _resolved_v5_session_id(fallback_prefix: str) -> str:
+def _resolved_session_id(fallback_prefix: str) -> str:
     return resolve_session_id() or f"{fallback_prefix}-{int(time.time())}"
 
 
-class GovernedCapabilityGuardMiddleware(CapabilityGuardMiddleware):
-    """Capability guard with session context, delegation audit, and tool tracking."""
+class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
+    """ACS `pre_tool_call` / `post_tool_call` guard with session context and tool tracking."""
 
-    def _ensure_v5_context(self) -> Any:
-        assert self.kernel is not None
-        if self._v5_ctx is None:
-            from agent_os.integrations.base import ExecutionContext
+    def __init__(
+        self,
+        *,
+        kernel: GovernanceKernel,
+        audit_log: Any | None = None,
+        agent_id: str = "maf-agent",
+    ) -> None:
+        self.kernel = kernel
+        self.audit_log = audit_log
+        self._agent_id = agent_id
+        self._host_ctx: HostContext | None = None
 
-            self._v5_ctx = ExecutionContext(
+    def _host_context(self) -> HostContext:
+        if self._host_ctx is None:
+            self._host_ctx = HostContext(
                 agent_id=self._agent_id,
-                session_id=_resolved_v5_session_id("maf-cap"),
-                policy=self.kernel.policy,
+                session_id=_resolved_session_id("maf-cap"),
             )
-        return self._v5_ctx
+        return self._host_ctx
 
-    async def _process_v5(
+    async def process(
         self,
         context: Any,
         call_next: Callable[[], Awaitable[None]],
     ) -> None:
-        assert self.kernel is not None
         func_name = getattr(
             getattr(context, "function", None), "name", "unknown"
         )
@@ -87,16 +97,16 @@ class GovernedCapabilityGuardMiddleware(CapabilityGuardMiddleware):
         else:
             args_dict = {"_value": raw_args}
 
-        ctx = self._ensure_v5_context()
-        bridge_result = self.kernel.evaluate_pre_tool_call(
+        ctx = self._host_context()
+        pre_result = await self.kernel.evaluate_pre_tool_call(
             ctx,
             tool_name=func_name,
             args=args_dict,
             call_id=f"maf-cap-{ctx.call_count + 1}",
         )
 
-        if not bridge_result.allowed:
-            reason = bridge_result.reason or "tool_blocked"
+        if not pre_result.allowed:
+            reason = pre_result.reason or "tool_blocked"
             context.result = (
                 f"⛔ Tool '{func_name}' is not permitted by governance policy"
             )
@@ -111,24 +121,22 @@ class GovernedCapabilityGuardMiddleware(CapabilityGuardMiddleware):
                         {
                             "tool": func_name,
                             "reason": reason,
-                            "verdict": bridge_result.verdict,
+                            "verdict": pre_result.verdict,
                         },
-                        decision=bridge_result.verdict,
+                        decision=pre_result.verdict,
                         threat_class=_threat_class_for_reason(reason),
                     ),
                     outcome="denied",
-                    policy_decision=bridge_result.verdict,
+                    policy_decision=pre_result.verdict,
                 )
 
             raise MiddlewareTermination(
                 f"Tool '{func_name}' is not permitted by governance policy"
             )
 
-        if bridge_result.transform is not None and isinstance(
-            bridge_result.transform.value, dict
-        ):
+        if pre_result.transform is not None and isinstance(pre_result.transformed_value, dict):
             try:
-                context.arguments = bridge_result.transform.value
+                context.arguments = pre_result.transformed_value
             except Exception:  # noqa: BLE001
                 pass
 
@@ -148,7 +156,29 @@ class GovernedCapabilityGuardMiddleware(CapabilityGuardMiddleware):
         ctx.call_count += 1
         result_summary = str(getattr(context, "result", ""))[:500]
         state = get_session_state(ctx.session_id)
-        state.record_tool_completion(func_name, getattr(context, "result", ""))
+
+        post_result = await self.kernel.evaluate_post_tool_call(
+            ctx,
+            tool_name=func_name,
+            args=args_dict,
+            result=getattr(context, "result", ""),
+            call_id=f"maf-cap-{ctx.call_count}",
+        )
+        if not post_result.allowed:
+            reason = post_result.reason or "tool_output_blocked"
+            context.result = (
+                f"⛔ Tool output from '{func_name}' blocked by governance policy"
+            )
+            state.poisoned_context = reason in {
+                "tool_output_poisoned",
+                "poisoned_context_blocked",
+            }
+            result_summary = str(context.result)[:500]
+        elif post_result.transform is not None:
+            transformed = post_result.transformed_value
+            if transformed is not None:
+                context.result = transformed
+                result_summary = str(transformed)[:500]
 
         if self.audit_log:
             self.audit_log.log(
@@ -181,5 +211,10 @@ def _threat_class_for_reason(reason: str) -> str:
         "write_path_not_allowed": "T10",
         "egress_destination_not_allowed": "T3",
         "blocked_pattern_input": "T1",
+        "semantic_drift_blocked": "T4",
+        "intent_drift_blocked": "T4",
+        "delegation_unsigned": "T7",
+        "tool_output_poisoned": "T11",
+        "tool_output_blocked": "T10",
     }
     return mapping.get(reason, "")

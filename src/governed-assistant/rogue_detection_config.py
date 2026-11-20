@@ -42,26 +42,20 @@ def build_demo_rogue_detector() -> Any:
     )
 
 
-def apply_rogue_demo_config(stack: list[Any], *, agent_id: str) -> list[Any]:
-    """Swap in demo rogue middleware when GOVERNANCE_ROGUE_DEMO is enabled."""
+def build_rogue_detection_middleware(*, agent_id: str, audit_log: Any | None) -> RogueDetectionMiddleware:
+    """Rogue-detection middleware; demo thresholds when GOVERNANCE_ROGUE_DEMO is enabled."""
     if not rogue_demo_mode_enabled():
-        return stack
+        from agent_sre.anomaly.rogue_detector import RogueAgentDetector, RogueDetectorConfig
 
-    detector = build_demo_rogue_detector()
-    detector.register_capability_profile(agent_id, AGENT_BASELINE_TOOLS)
-    profile = {"allowed_tools": AGENT_BASELINE_TOOLS}
+        return RogueDetectionMiddleware(
+            detector=RogueAgentDetector(config=RogueDetectorConfig()),
+            agent_id=agent_id,
+            audit_log=audit_log,
+        )
 
-    configured: list[Any] = []
-    for middleware in stack:
-        if isinstance(middleware, RogueDetectionMiddleware):
-            configured.append(
-                RogueDetectionMiddleware(
-                    detector=detector,
-                    agent_id=agent_id,
-                    capability_profile=profile,
-                    audit_log=middleware.audit_log,
-                )
-            )
-        else:
-            configured.append(middleware)
-    return configured
+    return RogueDetectionMiddleware(
+        detector=build_demo_rogue_detector(),
+        agent_id=agent_id,
+        capability_profile={"allowed_tools": AGENT_BASELINE_TOOLS},
+        audit_log=audit_log,
+    )

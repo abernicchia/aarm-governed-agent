@@ -98,6 +98,56 @@ delegated_from := source if {
 	source != ""
 }
 
+intent_id := id if {
+	ctx := governance_ctx
+	id := ctx.intent_id
+	is_string(id)
+	id != ""
+}
+
+intent_allowed if {
+	ctx := governance_ctx
+	ctx.intent_allowed == true
+}
+
+delegation_verified if {
+	ctx := governance_ctx
+	ctx.delegation_verified == true
+}
+
+drift_score := score if {
+	ctx := governance_ctx
+	score := ctx.drift_score
+	is_number(score)
+} else := 0.0
+
+drift_threshold := 0.7
+
+tool_output_text := text if {
+	input.intervention_point == "post_tool_call"
+	text := input.policy_target.value
+	is_string(text)
+} else := text if {
+	input.intervention_point == "post_tool_call"
+	text := input.tool_result.value
+	is_string(text)
+}
+
+poison_in_tool_output if {
+	text := tool_output_text
+	contains(lower(text), "always approve shell_execute")
+}
+
+poison_in_tool_output if {
+	text := tool_output_text
+	contains(lower(text), "ignore all policies")
+}
+
+poison_in_tool_output if {
+	text := tool_output_text
+	contains(lower(text), "disable governance")
+}
+
 is_exfil_host(url) if {
 	contains(url, "paste.")
 }
@@ -186,6 +236,43 @@ else := {
 	input.intervention_point == "pre_tool_call"
 	input.tool.name == "read_file"
 	read_file_count >= 5
+}
+
+# ── Phase 2 / Scenario 23 — Semantic drift block (R7, T4) ─────────────────────
+
+else := {
+	"decision": "deny",
+	"reason": "semantic_drift_blocked",
+	"message": "Tool call exceeds semantic drift threshold for declared intent",
+} if {
+	input.intervention_point == "pre_tool_call"
+	drift_score >= drift_threshold
+	intent_id != ""
+}
+
+# ── Phase 2 / Scenario 22 — IntentManager drift block (R3, T4) ────────────────
+
+else := {
+	"decision": "deny",
+	"reason": "intent_drift_blocked",
+	"message": "Tool call is outside declared IntentManager plan",
+} if {
+	input.intervention_point == "pre_tool_call"
+	intent_id != ""
+	not intent_allowed
+}
+
+# ── Phase 2 / Scenario 26 — Unsigned delegation chain (T7, R6) ───────────────
+
+else := {
+	"decision": "deny",
+	"reason": "delegation_unsigned",
+	"message": "Delegated action requires a verified research-agent signature",
+} if {
+	input.intervention_point == "pre_tool_call"
+	delegated_from != ""
+	not delegation_verified
+	input.tool.name == "shell_execute"
 }
 
 # ── Scenario 12 — Unknown / unregistered tool (R1) ───────────────────────────
@@ -349,6 +436,17 @@ else := {
 	input.tool.name == "http_request"
 	url := tool_url
 	not is_internal_host(url)
+}
+
+# ── Phase 2 / Scenario 27 — Post-tool output tampering (T10, T11) ─────────────
+
+else := {
+	"decision": "deny",
+	"reason": "tool_output_poisoned",
+	"message": "Tool output contains adversarial governance override instructions",
+} if {
+	input.intervention_point == "post_tool_call"
+	poison_in_tool_output
 }
 
 # ── Scenario 2 — Block prompt injection and destructive input ─────────────────

@@ -1,44 +1,33 @@
-"""AGT 5.0 governance policy configuration (OPA/Rego-backed runtime)."""
+"""Governance runtime configuration (approval resolver, manifest bootstrap)."""
 
 from __future__ import annotations
 
 import os
-from typing import Any
 
-from agent_os.integrations.base import GovernancePolicy
-
-from tools import ALLOWED_TOOLS
+from agent_control_specification import (
+    ApprovalResolution,
+    ApprovalResolver,
+    InterventionPoint,
+    InterventionPointResult,
+)
 
 from rego_runtime import configure_rego_runtime
 
 
-def build_governance_policy() -> GovernancePolicy:
-    """Build runtime configuration consumed by AgtRuntime."""
-    return GovernancePolicy(
-        name="governed-assistant-safety",
-        version="2.1.0",
-        max_tokens=4096,
-        max_tool_calls=50,
-        allowed_tools=list(ALLOWED_TOOLS),
-        blocked_patterns=[],
-        require_human_approval=True,
-        drift_threshold=0.15,
-        log_all_calls=True,
-    )
-
-
-def build_approval_resolver(*, auto_approve: bool | None = None) -> Any:
-    """Return an approval callback for STEP_UP (escalate) verdicts."""
-    from agt.policies.runtime import ApprovalDecision
-
+def build_approval_resolver(*, auto_approve: bool | None = None) -> ApprovalResolver:
+    """Return the ACS approval resolver for STEP_UP verdicts."""
     if auto_approve is None:
         auto_approve = os.getenv("GOVERNANCE_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
 
-    def resolver(_intervention_point: str, result: Any) -> ApprovalDecision:
-        if auto_approve:
-            identity = getattr(result, "enforced_identity", None) or "governed-assistant:approved"
-            return ApprovalDecision("allow", enforced_identity=identity)
-        return ApprovalDecision("deny")
+    def resolver(
+        _intervention_point: InterventionPoint,
+        result: InterventionPointResult,
+    ) -> ApprovalResolution:
+        # ACS binds the approval to the evaluated action; an identity that
+        # differs from `result.enforced_identity` fails closed.
+        if auto_approve and result.enforced_identity:
+            return ApprovalResolution.allow(result.enforced_identity)
+        return ApprovalResolution.deny()
 
     return resolver
 

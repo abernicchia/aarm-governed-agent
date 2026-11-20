@@ -135,10 +135,22 @@ def enrich_audit_data(
     return payload
 
 
+def stamp_agent_id(payload: dict[str, Any], agent_did: str) -> dict[str, Any]:
+    payload["agent.id"] = agent_did
+    return payload
+
+
 def _current_agent_id() -> str:
     bound = _audit_context.get()
     if bound is not None:
         return bound.agent_did
+    try:
+        from governance_phase2 import phase2_enabled, resolve_runtime_agent_id
+
+        if phase2_enabled():
+            return resolve_runtime_agent_id(fallback="governed-assistant")
+    except Exception:
+        pass
     return "governed-assistant"
 
 
@@ -171,6 +183,31 @@ class _OtelEnrichedSink:
 class GovernedAuditLog(AuditLog):
     """AuditLog that stamps session_id, delegation, and normalizes agent_did."""
 
+    @staticmethod
+    def _attach_mesh_signature_fields(
+        enriched: dict[str, Any],
+        *,
+        agent_did: str,
+        event_type: str,
+    ) -> None:
+        try:
+            from governance_phase2 import phase2_enabled
+            from governance_identity import sign_audit_fields
+
+            if not phase2_enabled():
+                return
+            if not str(agent_did).startswith("did:mesh:"):
+                return
+            enriched.update(
+                sign_audit_fields(
+                    enriched.get("entry_id") or event_type,
+                    event_type,
+                    agent_did,
+                )
+            )
+        except Exception:
+            return
+
     def log(
         self,
         event_type: str,
@@ -197,6 +234,12 @@ class GovernedAuditLog(AuditLog):
             decision=policy_decision or action,
             threat_class=(data or {}).get("aarm.threat_class"),
         )
+        self._attach_mesh_signature_fields(
+            enriched,
+            agent_did=resolved_agent_did,
+            event_type=event_type,
+        )
+        stamp_agent_id(enriched, resolved_agent_did)
 
         entry = AuditEntry(
             event_type=event_type,

@@ -1,12 +1,15 @@
-"""OPA/Rego-backed governance runtime for AGT 5.0 middleware."""
+"""OPA/Rego-backed ACS runtime (`AgentControl`) for the governance middleware."""
 
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from agent_os.integrations.base import GovernancePolicy
+import yaml
+from agent_control_specification import AgentControl, ApprovalResolver
+
+from acs_host import DEFAULT_APPROVAL_TIMEOUT_SECONDS, AcsHost
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "policies" / "manifest.yaml"
@@ -64,18 +67,27 @@ def configure_rego_runtime() -> Path:
     return manifest_path
 
 
-def build_rego_runtime_factory(
+def approval_timeout_from_manifest(manifest_path: Path) -> float:
+    """Read `approval.timeout_seconds`; invalid or missing values use the ACS default."""
+    manifest: Any = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    approval = manifest.get("approval") if isinstance(manifest, dict) else None
+    raw = approval.get("timeout_seconds") if isinstance(approval, dict) else None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        return float(raw)
+    return DEFAULT_APPROVAL_TIMEOUT_SECONDS
+
+
+def build_acs_host(
     *,
     manifest_path: Path | str | None = None,
-    approval_resolver: Callable[..., Any] | None = None,
-) -> Callable[[GovernancePolicy], Any]:
-    """Return a runtime factory for MAFKernel / create_governance_middleware."""
-
-    def factory(_governance_policy: GovernancePolicy) -> Any:
-        from agt.policies.runtime import AgtRuntime
-
-        ensure_rego_bundle()
-        path = configure_rego_runtime() if manifest_path is None else Path(manifest_path).resolve()
-        return AgtRuntime(str(path), approval_resolver=approval_resolver)
-
-    return factory
+    approval_resolver: ApprovalResolver | None = None,
+) -> AcsHost:
+    """Load the ACS manifest into `AgentControl` and wrap it in the host seam."""
+    ensure_rego_bundle()
+    path = configure_rego_runtime() if manifest_path is None else Path(manifest_path).resolve()
+    control = AgentControl.from_path(str(path), approval_resolver=approval_resolver)
+    return AcsHost(
+        control,
+        approval_resolver=approval_resolver,
+        approval_timeout_seconds=approval_timeout_from_manifest(path),
+    )

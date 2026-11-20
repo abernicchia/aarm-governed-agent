@@ -1,39 +1,35 @@
-"""Governance-aware MAF kernel — injects session context into ACS snapshots."""
+"""Governance kernel — injects session context into ACS snapshots and evaluates them."""
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any
 
-from agent_os.integrations.base import ExecutionContext, GovernancePolicy
-from agent_os.integrations.maf_adapter import MAFKernel
-
+from acs_host import AcsHost, HostContext, PolicyResult
 from governance_session import get_session_state, inject_governance_snapshot
+from tools import ALLOWED_TOOLS
 
 
-def _host_human_approval_deny() -> Any:
-    from agent_os.integrations._v5_runtime_bridge import BridgeResult
+class GovernanceKernel:
+    """Evaluates the `input`, `pre_tool_call`, and `post_tool_call` points on the ACS runtime."""
 
-    from agent_os.policies.decision import PolicyCheckResult
+    def __init__(self, host: AcsHost) -> None:
+        self.host = host
 
-    check = PolicyCheckResult(
-        allowed=False,
-        action="deny",
-        reason="human_approval_required",
-        matched_rule="require_human_approval",
-    )
-    evaluation = type("E", (), {
-        "is_allowed": lambda self: False,
-        "verdict": "deny",
-        "reason": "human_approval_required",
-        "audit_entry": {},
-    })()
-    return BridgeResult(evaluation=evaluation, check_result=check)
+    def _enrich_state(self, ctx: HostContext) -> None:
+        state = get_session_state(ctx.session_id)
+        try:
+            from governance_phase2 import enrich_session_for_input, phase2_enabled
 
+            if phase2_enabled():
+                enrich_session_for_input(state, allowed_tools=ALLOWED_TOOLS)
+                if not state.agent_did:
+                    from governance_phase2 import resolve_runtime_agent_id
 
-class GovernanceMAFKernel(MAFKernel):
-    """MAFKernel that attaches session governance context to every snapshot."""
+                    state.agent_did = resolve_runtime_agent_id(fallback=ctx.agent_id)
+        except Exception:
+            pass
 
-    def evaluate_input(self, ctx: ExecutionContext, input_data: Any) -> Any:
+    async def evaluate_input(self, ctx: HostContext, input_data: Any) -> PolicyResult:
         body: Any
         if isinstance(input_data, (str, dict)):
             body = input_data
@@ -44,73 +40,65 @@ class GovernanceMAFKernel(MAFKernel):
 
         state = get_session_state(ctx.session_id)
         state.ingest_user_message(body if isinstance(body, str) else str(body))
+        self._enrich_state(ctx)
 
-        builder = self.bridge.builder_for(ctx)
-        snapshot = builder.input(
-            body=body if isinstance(body, (str, dict)) else str(body),
-        )
+        snapshot = self.host.builder_for(ctx).input(body=body)
         snapshot = inject_governance_snapshot(snapshot, ctx.session_id)
-        result = self.bridge._evaluate("input", snapshot)
+        return await self.host.aevaluate("input", snapshot)
 
-        if (
-            result.verdict == "allow"
-            and self.policy.require_human_approval
-            and self._approval_resolver is None
-        ):
-            return _host_human_approval_deny()
-        return result
-
-    def evaluate_pre_tool_call(
+    async def evaluate_pre_tool_call(
         self,
-        ctx: ExecutionContext,
+        ctx: HostContext,
         *,
         tool_name: str,
         args: dict[str, Any],
         call_id: str = "call-1",
-    ) -> Any:
-        builder = self.bridge.builder_for(ctx)
-        snapshot = builder.pre_tool_call(
+    ) -> PolicyResult:
+        state = get_session_state(ctx.session_id)
+        try:
+            from governance_phase2 import enrich_session_for_tool, phase2_enabled
+
+            if phase2_enabled():
+                enrich_session_for_tool(
+                    state,
+                    tool_name=tool_name,
+                    args=dict(args),
+                    request_id=call_id,
+                    allowed_tools=ALLOWED_TOOLS,
+                )
+        except Exception:
+            pass
+
+        snapshot = self.host.builder_for(ctx).pre_tool_call(
             tool_name=tool_name,
             args=dict(args),
             call_id=call_id,
         )
         snapshot = inject_governance_snapshot(snapshot, ctx.session_id)
-        result = self.bridge._evaluate("pre_tool_call", snapshot)
-        fallback = result.evaluation.audit_entry.get("v5_fallback")
-        if result.verdict == "allow" and fallback == "unbound_intervention_point":
-            from agent_os.integrations._v5_runtime_bridge import _host_budget_check
+        return await self.host.aevaluate("pre_tool_call", snapshot)
 
-            host_check = _host_budget_check(self.policy, ctx)
-            if host_check is not None:
-                return host_check
-        return result
+    async def evaluate_post_tool_call(
+        self,
+        ctx: HostContext,
+        *,
+        tool_name: str,
+        args: dict[str, Any],
+        result: Any,
+        error: Any = None,
+        duration_ms: float = 0.0,
+        call_id: str = "call-1",
+    ) -> PolicyResult:
+        state = get_session_state(ctx.session_id)
+        state.record_tool_completion(tool_name, result, args=dict(args))
 
-
-def build_governance_kernel(
-    policy: GovernancePolicy,
-    *,
-    approval_resolver: Optional[Callable[..., Any]] = None,
-    _runtime: Optional[Any] = None,
-    _runtime_factory: Optional[Callable[[GovernancePolicy], Any]] = None,
-) -> GovernanceMAFKernel:
-    return GovernanceMAFKernel(
-        policy,
-        approval_resolver=approval_resolver,
-        _runtime=_runtime,
-        _runtime_factory=_runtime_factory,
-    )
-
-
-def patch_middleware_kernel(middleware: Any) -> Any:
-    kernel = getattr(middleware, "kernel", None)
-    if kernel is None or isinstance(kernel, GovernanceMAFKernel):
-        return middleware
-
-    wrapper = GovernanceMAFKernel.__new__(GovernanceMAFKernel)
-    wrapper.policy = kernel.policy
-    wrapper._approval_resolver = getattr(kernel, "_approval_resolver", None)
-    wrapper._bridge = kernel._bridge
-    wrapper._start_time = getattr(kernel, "_start_time", 0.0)
-    wrapper._last_error = getattr(kernel, "_last_error", None)
-    middleware.kernel = wrapper
-    return middleware
+        snapshot = self.host.builder_for(ctx).post_tool_call(
+            tool_name=tool_name,
+            args=dict(args),
+            result=result,
+            error=error,
+            duration_ms=duration_ms,
+            call_id=call_id,
+        )
+        snapshot["policy_target"] = {"value": result, "kind": "tool_output"}
+        snapshot = inject_governance_snapshot(snapshot, ctx.session_id)
+        return await self.host.aevaluate("post_tool_call", snapshot)

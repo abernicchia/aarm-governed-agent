@@ -22,10 +22,10 @@ import os
 from types import SimpleNamespace
 
 from agent_factory import build_governance_stack
-from agent_os.integrations.maf_adapter import CapabilityGuardMiddleware
+from governance_middleware import GovernedCapabilityGuardMiddleware
 
 stack = build_governance_stack()
-capability = next(m for m in stack if isinstance(m, CapabilityGuardMiddleware))
+capability = next(m for m in stack if isinstance(m, GovernedCapabilityGuardMiddleware))
 
 async def run() -> None:
     context = SimpleNamespace(

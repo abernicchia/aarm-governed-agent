@@ -1,7 +1,7 @@
 agent_control_specification_version: "0.3.0-alpha-agt"
 metadata:
   name: governed-assistant-safety
-  policy_version: "2.1.0"
+  policy_version: "2.2.0"
 extends: []
 policies:
   governed_assistant:
@@ -17,6 +17,12 @@ intervention_points:
   pre_tool_call:
     policy_target: "$.tool_call.args"
     policy_target_kind: tool_args
+    policy:
+      id: governed_assistant
+    tool_name_from: "$.tool_call.name"
+  post_tool_call:
+    policy_target: "$.tool_result.value"
+    policy_target_kind: tool_output
     policy:
       id: governed_assistant
     tool_name_from: "$.tool_call.name"

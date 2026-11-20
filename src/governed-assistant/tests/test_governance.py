@@ -8,8 +8,8 @@ import shutil
 from types import SimpleNamespace
 
 import pytest
+from agent_control_specification import AgentControl
 from agent_framework import MiddlewareTermination
-from agent_os.integrations.maf_adapter import CapabilityGuardMiddleware
 
 from agent_factory import AGENT_ID, build_governance_stack
 from governance_audit import (
@@ -17,9 +17,10 @@ from governance_audit import (
     reset_governance_audit_context,
     set_governance_audit_context,
 )
-from governance_middleware import GovernedAuditTrailMiddleware
-from governance_policy import build_approval_resolver, build_governance_policy
-from rego_runtime import build_rego_runtime_factory, configure_rego_runtime
+from governance_kernel import GovernanceKernel
+from governance_middleware import GovernedAuditTrailMiddleware, GovernedCapabilityGuardMiddleware
+from governance_policy import build_approval_resolver
+from rego_runtime import build_acs_host, configure_rego_runtime
 from rogue_detection_config import AGENT_BASELINE_TOOLS, build_demo_rogue_detector
 from streaming_governance import StreamingGovernancePolicyMiddleware
 from tools import ALLOWED_TOOLS, DENIED_TOOLS, SENSITIVE_TOOLS
@@ -29,16 +30,14 @@ from tools import ALLOWED_TOOLS, DENIED_TOOLS, SENSITIVE_TOOLS
 def _require_rego_runtime() -> None:
     os.environ["GOVERNANCE_AUDIT_STDOUT"] = "0"
     os.environ["GOVERNANCE_OTEL_AUDIT"] = "0"
+    os.environ["GOVERNANCE_PHASE2"] = "0"
     configure_rego_runtime()
     if shutil.which("opa") is None:
         pytest.skip("opa binary is required on PATH for Rego policy evaluation")
 
 
 def _build_runtime(*, auto_approve: bool | None = None):
-    factory = build_rego_runtime_factory(
-        approval_resolver=build_approval_resolver(auto_approve=auto_approve),
-    )
-    return factory(build_governance_policy())
+    return build_acs_host(approval_resolver=build_approval_resolver(auto_approve=auto_approve))
 
 
 def _tool_snapshot(
@@ -83,21 +82,40 @@ def test_governance_stack_has_four_layers() -> None:
     ]
 
 
-def test_governance_stack_uses_agt_v5_kernel() -> None:
-    policy = next(
-        middleware
-        for middleware in build_governance_stack()
-        if isinstance(middleware, StreamingGovernancePolicyMiddleware)
-    )
-    assert policy.kernel is not None
-    assert policy.evaluator is None
+def test_governance_stack_calls_acs_runtime_directly() -> None:
+    stack = build_governance_stack()
+    policy = next(m for m in stack if isinstance(m, StreamingGovernancePolicyMiddleware))
+    guard = next(m for m in stack if isinstance(m, GovernedCapabilityGuardMiddleware))
+    assert isinstance(policy.kernel, GovernanceKernel)
+    assert policy.kernel is guard.kernel
+    assert isinstance(policy.kernel.host.control, AgentControl)
+
+
+def test_no_removed_agt_runtime_apis_are_imported() -> None:
+    import ast
+    from pathlib import Path
+
+    removed_modules = ("agt.policies", "agent_os.integrations._v5_runtime_bridge")
+    removed_names = {"AgtRuntime", "ApprovalDecision", "GovernancePolicy", "ExecutionContext", "MAFKernel"}
+    offenders = []
+    for path in Path(__file__).resolve().parents[1].glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                modules, names = [node.module or ""], [alias.name for alias in node.names]
+            elif isinstance(node, ast.Import):
+                modules, names = [alias.name for alias in node.names], []
+            else:
+                continue
+            if any(m.startswith(removed_modules) for m in modules) or removed_names & set(names):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == []
 
 
 def test_capability_guard_blocks_denied_tool() -> None:
     capability = next(
         middleware
         for middleware in build_governance_stack()
-        if isinstance(middleware, CapabilityGuardMiddleware)
+        if isinstance(middleware, GovernedCapabilityGuardMiddleware)
     )
 
     async def run() -> None:
@@ -123,7 +141,7 @@ def test_capability_guard_allows_calculator() -> None:
     capability = next(
         middleware
         for middleware in build_governance_stack()
-        if isinstance(middleware, CapabilityGuardMiddleware)
+        if isinstance(middleware, GovernedCapabilityGuardMiddleware)
     )
 
     async def run() -> None:
@@ -148,7 +166,7 @@ def test_capability_guard_blocks_sensitive_tool_without_approval(monkeypatch) ->
     capability = next(
         middleware
         for middleware in build_governance_stack()
-        if isinstance(middleware, CapabilityGuardMiddleware)
+        if isinstance(middleware, GovernedCapabilityGuardMiddleware)
     )
 
     async def run() -> None:
@@ -176,7 +194,7 @@ def test_capability_guard_allows_sensitive_tool_with_auto_approve(monkeypatch) -
     capability = next(
         middleware
         for middleware in build_governance_stack()
-        if isinstance(middleware, CapabilityGuardMiddleware)
+        if isinstance(middleware, GovernedCapabilityGuardMiddleware)
     )
 
     async def run() -> None:
@@ -254,8 +272,8 @@ def test_rego_policy_redacts_aws_keys() -> None:
     result = runtime.evaluate_intervention_point("input", snapshot)
     assert result.verdict == "transform"
     assert result.transform is not None
-    assert "[REDACTED]" in result.transform["value"]
-    assert "AKIA" not in result.transform["value"]
+    assert "[REDACTED]" in result.transformed_value
+    assert "AKIA" not in result.transformed_value
 
 
 def test_policy_middleware_applies_aws_key_redaction() -> None:
@@ -435,7 +453,7 @@ def test_capability_guard_blocks_external_http_exfiltration() -> None:
     capability = next(
         middleware
         for middleware in build_governance_stack()
-        if isinstance(middleware, CapabilityGuardMiddleware)
+        if isinstance(middleware, GovernedCapabilityGuardMiddleware)
     )
 
     async def run() -> None:
@@ -600,7 +618,7 @@ def test_scenario_14_send_email_recipient_modified() -> None:
     result = runtime.evaluate_intervention_point("pre_tool_call", snapshot)
     assert result.verdict == "transform"
     assert result.transform is not None
-    assert result.transform["value"]["to"] == "user@company.com"
+    assert result.transformed_value["to"] == "user@company.com"
 
 
 def test_scenario_15_intent_mismatch_denied() -> None:

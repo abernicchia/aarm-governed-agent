@@ -6,28 +6,23 @@ import os
 from typing import Any
 
 from agent_framework import Agent
-from agent_os.integrations.maf_adapter import (
-    AuditTrailMiddleware,
-    CapabilityGuardMiddleware,
-    GovernancePolicyMiddleware,
-    create_governance_middleware,
-)
 
-from rego_runtime import build_rego_runtime_factory
-from governance_policy import (
-    bootstrap_governance_runtime,
-    build_approval_resolver,
-    build_governance_policy,
-)
+from rego_runtime import build_acs_host
+from governance_policy import bootstrap_governance_runtime, build_approval_resolver
 from governance_audit import GovernedAuditLog, build_audit_sink
-from governance_kernel import patch_middleware_kernel
+from governance_kernel import GovernanceKernel
 from governance_middleware import GovernedAuditTrailMiddleware, GovernedCapabilityGuardMiddleware
 from streaming_governance import StreamingGovernancePolicyMiddleware
-from rogue_detection_config import apply_rogue_demo_config
+from rogue_detection_config import build_rogue_detection_middleware
+from governance_phase2 import bootstrap_phase2, phase2_enabled, resolve_runtime_agent_id
 from tools import ALLOWED_TOOLS, TOOLS
 
 AGENT_ID = "governed-assistant"
 AGENT_NAME = "Governed Assistant"
+
+
+def resolve_agent_id() -> str:
+    return resolve_runtime_agent_id(fallback=AGENT_ID)
 
 
 def build_audit_log() -> GovernedAuditLog:
@@ -36,55 +31,18 @@ def build_audit_log() -> GovernedAuditLog:
 
 
 def build_governance_stack() -> list[Any]:
+    """Four-layer middleware stack (outer → inner) over the ACS runtime."""
     bootstrap_governance_runtime()
-    approval_resolver = build_approval_resolver()
-    stack = create_governance_middleware(
-        policy=build_governance_policy(),
-        allowed_tools=ALLOWED_TOOLS,
-        agent_id=AGENT_ID,
-        enable_rogue_detection=True,
-        approval_resolver=approval_resolver,
-        audit_log=build_audit_log(),
-        _runtime_factory=build_rego_runtime_factory(approval_resolver=approval_resolver),
-    )
-    stack = apply_rogue_demo_config(stack, agent_id=AGENT_ID)
-    upgraded = [_upgrade_middleware(middleware) for middleware in stack]
-    return [patch_middleware_kernel(middleware) for middleware in upgraded]
-
-
-def _upgrade_middleware(middleware: Any) -> Any:
-    if isinstance(middleware, GovernedAuditTrailMiddleware):
-        return middleware
-    if isinstance(middleware, AuditTrailMiddleware):
-        return GovernedAuditTrailMiddleware(
-            audit_log=middleware.audit_log,
-            agent_did=middleware.agent_did,
-        )
-    if isinstance(middleware, GovernedCapabilityGuardMiddleware):
-        return middleware
-    if isinstance(middleware, CapabilityGuardMiddleware):
-        return GovernedCapabilityGuardMiddleware(
-            allowed_tools=middleware.allowed_tools,
-            denied_tools=middleware.denied_tools,
-            audit_log=middleware.audit_log,
-            kernel=middleware.kernel,
-            agent_id=middleware._agent_id,
-        )
-    if isinstance(middleware, GovernancePolicyMiddleware):
-        return _upgrade_policy_middleware(middleware)
-    return middleware
-
-
-def _upgrade_policy_middleware(middleware: Any) -> Any:
-    """Use streaming-aware policy denial for the Foundry Responses host."""
-    if not isinstance(middleware, GovernancePolicyMiddleware):
-        return middleware
-    return StreamingGovernancePolicyMiddleware(
-        evaluator=middleware.evaluator,
-        audit_log=middleware.audit_log,
-        kernel=middleware.kernel,
-        agent_id=middleware._agent_id,
-    )
+    if phase2_enabled():
+        bootstrap_phase2(allowed_tools=ALLOWED_TOOLS)
+    kernel = GovernanceKernel(build_acs_host(approval_resolver=build_approval_resolver()))
+    audit_log = build_audit_log()
+    return [
+        GovernedAuditTrailMiddleware(audit_log=audit_log, agent_did=AGENT_ID),
+        StreamingGovernancePolicyMiddleware(kernel=kernel, audit_log=audit_log, agent_id=AGENT_ID),
+        GovernedCapabilityGuardMiddleware(kernel=kernel, audit_log=audit_log, agent_id=AGENT_ID),
+        build_rogue_detection_middleware(agent_id=AGENT_ID, audit_log=audit_log),
+    ]
 
 
 def create_agent(client: Any) -> Agent[Any]:
