@@ -2,7 +2,7 @@
 FROM python:3.13-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && curl -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.4.2/opa_linux_amd64_static \
+    && curl -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.22.4/opa_linux_amd64_static \
     && chmod +x /usr/local/bin/opa \
     && rm -rf /var/lib/apt/lists/*
 

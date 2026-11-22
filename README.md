@@ -67,7 +67,7 @@ STEP_UP (`update_customer_record`) is resolved through the ACS approval resolver
 ## Prerequisites
 
 - Python 3.11+ (3.13 recommended for Foundry container deploy)
-- [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa) 0.69+ on `PATH` (local tests and policy validation)
+- [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa) 1.22.4+ on `PATH` (local tests and policy validation; the container image pins the same version)
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) 1.25.3+
 - Foundry extension: `azd ext install microsoft.foundry`
 - Azure subscription with a Foundry project (or let `azd` create one)
