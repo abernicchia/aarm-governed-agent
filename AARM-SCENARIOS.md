@@ -112,9 +112,37 @@ cd src/governed-assistant && python -m pytest tests/test_governance.py::test_pol
 
 ### S3 — ALLOW happy path with receipts and identity (R4, R5, R6)  ✅
 
-**Story:** `"What is 17 * 23?"` and `"What time is it in UTC?"`.
+**Story:** the user asks for something the agent may do; the tool call is allowed and leaves signed receipts bound to the agent identity.
 
-**Expected:** `input` ALLOW → `calculator` / `get_current_time` ALLOW at `pre_tool_call` → correct answer. Audit shows allow → tool start → tool complete, each with the agent identity (`did:mesh:…` in Phase 2).
+```bash
+# Terminal 1 — receipts go to .governance-audit.jsonl (not the console) when signing is on
+GOVERNANCE_PHASE2=1 GOVERNANCE_SIGNED_AUDIT=1 azd ai agent run
+# Terminal 2 — name the tool, otherwise the model may answer 17 * 23 itself and no tool call is audited
+azd ai agent invoke --local "Use the calculator tool to compute 17 * 23"
+azd ai agent invoke --local "Use the get_current_time tool to tell me the time in UTC"
+./scripts/verify-audit-chain.sh
+cd src/governed-assistant
+python -m pytest tests/test_governance.py -k "capability_guard_allows_calculator or governed_audit_log_stamps_session_and_agent_did or scenario_31_one_decision or scenario_19" -v
+python -m pytest tests/test_phase2_governance.py -k "scenario_3_live or scenario_21 or scenario_28" -v
+```
+
+**Expected:** `input` ALLOW → `calculator` / `get_current_time` ALLOW at `pre_tool_call` → correct answer. `GOVERNANCE_PHASE2` already defaults to `1`; `GOVERNANCE_SIGNED_AUDIT=1` is the one flag you must add (`GOVERNANCE_AUDIT_FILE` and `GOVERNANCE_AUDIT_SECRET` are optional).
+
+**What to find in the audit file** (one session, hash-chained through `previous_hash`):
+
+| # | `event_type` / `action` | `aarm.intervention_point` | `aarm.decision` |
+| --- | --- | --- | --- |
+| 1 | `agent_invocation` / `start` | — | `start` (lifecycle, not an AARM decision) |
+| 2 | `policy_evaluation` / `allow` | `input` | `allow` |
+| 3 | `agent_invocation` / `complete` | — | `complete` (lifecycle) |
+| 4 | `tool_invocation` / `start` (`tool=calculator`) | `pre_tool_call` | `allow` |
+| 5 | `tool_invocation` / `complete` | `post_tool_call` | `allow` |
+
+With streaming, the run `complete` entry is written before the tool runs, so entries 4–5 come after it. Entries 4 and 5 share one `aarm.action_id`. Every entry carries `agent_did` and `agent.id` set to `did:mesh:…`, plus `mesh.did`, `mesh.key_id` and `mesh.signature` (Ed25519), and `session_id`. With `GOVERNANCE_SIGNED_AUDIT=1` each line also has an HMAC `signature` and `content_hash`. `policy_context` shows `prior_actions` growing (`[]` → `["calculator"]`).
+
+**Evidence per requirement:** R4 — the `allow` decisions at `input` and `pre_tool_call`, one per action (`test_scenario_31_one_decision_per_action_over_a_mixed_batch`). R5 — the hash chain and signatures, and `verify-audit-chain.sh` (`test_scenario_19_signed_audit_detects_tamper`). R6 — the Mesh DID and signature on every receipt, including the tool ones (`test_scenario_3_live_stack_receipts_carry_mesh_identity`, `test_scenario_21_mesh_did_in_audit`, `test_scenario_28_mesh_signed_audit_entry`).
+
+**Gaps:** whether the model calls the tool is up to the model, so the live run is a demo; the live-stack test covers it offline. The agent framework returns tool output as `list[Content]`; the guard converts it to plain text (`tool_result_text`) before policy and audit, so the `post_tool_call` entry's `result_preview` shows the text (`391`) and the same text feeds the S27 poisoning rule (`test_post_tool_receipt_shows_text_of_framework_content_result`).
 
 ### S4 — Data protection: MODIFY and exfiltration DENY (R4, T3)  ✅
 
@@ -265,6 +293,8 @@ python -m pytest tests/test_governance.py::test_scenario_18_poisoned_context_blo
 ```
 
 **Expected:** **DENY** at `post_tool_call` (`tool_output_poisoned`); middleware replaces the result and sets `poisoned_context`; follow-up privileged calls are denied (`poisoned_context_blocked`, S18). This also covers injection arriving through file content.
+
+The rule inspects the tool output as text. Live, the agent framework returns `list[Content]`, which the guard unwraps first; without that, poisoned output would not match (`test_poisoned_framework_content_output_is_blocked`).
 
 **Gaps:** detection is marker-based, so a differently worded attack would pass.
 

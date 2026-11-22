@@ -61,7 +61,10 @@ print("Integrity OK before tamper")
 lines = path.read_text(encoding="utf-8").splitlines()
 if not lines:
     raise SystemExit("Audit file is empty")
-tampered = lines[0].replace('"allow"', '"tampered"', 1)
+# The first receipt is the denied shell_execute call: flip its decision to "allow".
+tampered = lines[0].replace('"deny"', '"allow"')
+if tampered == lines[0]:
+    raise SystemExit("Nothing to tamper with in the first audit entry")
 path.write_text(tampered + "\n" + "\n".join(lines[1:]), encoding="utf-8")
 
 sink2 = FileAuditSink(path, secret)

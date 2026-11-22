@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from typing import Any, Awaitable, Callable
 
-from agent_framework import FunctionMiddleware, MiddlewareTermination
+from agent_framework import Content, FunctionMiddleware, MiddlewareTermination
 from agent_os.integrations.maf_adapter import AuditTrailMiddleware
 
 from acs_host import HostContext
@@ -52,6 +53,30 @@ class GovernedAuditTrailMiddleware(AuditTrailMiddleware):
             await super().process(context, call_next)
         finally:
             reset_governance_audit_context(token)
+
+
+def tool_result_text(result: Any) -> str:
+    """Plain text of a tool result.
+
+    The agent framework hands the guard a ``list[Content]`` (not a ``str``) for tool output,
+    and ``str()`` of that list is an object repr, not the text. Policy and audit need the text:
+    the Rego poisoning rule only inspects string values, and the receipt's ``result_preview``
+    should be readable.
+    """
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, Content):
+        return str(result)
+    if isinstance(result, (list, tuple)):
+        return "\n".join(tool_result_text(item) for item in result)
+    if isinstance(result, dict):
+        try:
+            return json.dumps(result, default=str, sort_keys=True)
+        except (TypeError, ValueError):
+            return str(result)
+    return str(result)
 
 
 def _resolved_session_id(fallback_prefix: str) -> str:
@@ -116,7 +141,7 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
             if self.audit_log:
                 self.audit_log.log(
                     event_type="tool_blocked",
-                    agent_did="capability-guard",
+                    agent_did=self._agent_id,
                     action="deny",
                     resource=func_name,
                     data=enrich_audit_data(
@@ -149,7 +174,7 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
         if self.audit_log:
             self.audit_log.log(
                 event_type="tool_invocation",
-                agent_did="capability-guard",
+                agent_did=self._agent_id,
                 action="start",
                 resource=func_name,
                 data=enrich_audit_data(
@@ -166,14 +191,15 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
         await call_next()
 
         ctx.call_count += 1
-        result_summary = str(getattr(context, "result", ""))[:500]
+        result_text = tool_result_text(getattr(context, "result", ""))
+        result_summary = result_text[:500]
         state = get_session_state(ctx.session_id)
 
         post_result = await self.kernel.evaluate_post_tool_call(
             ctx,
             tool_name=func_name,
             args=args_dict,
-            result=getattr(context, "result", ""),
+            result=result_text,
             call_id=f"maf-cap-{ctx.call_count}",
         )
         if not post_result.allowed:
@@ -195,7 +221,7 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
         if self.audit_log:
             self.audit_log.log(
                 event_type="tool_invocation",
-                agent_did="capability-guard",
+                agent_did=self._agent_id,
                 action="complete",
                 resource=func_name,
                 data=enrich_audit_data(

@@ -40,7 +40,7 @@ Tests are in `src/governed-assistant/tests/`; `p2` marks `test_phase2_governance
 | **TC-R5-01** | R5 | — | S31 | Run the 20-action batch | Receipt per action | `test_scenario_31_one_decision_per_action_over_a_mixed_batch` | ✅ | Each receipt: action, decision, timestamp, `policy_context` |
 | **TC-R5-02** | R5 | — | S19 | Alter one signed receipt field | Verification **FAIL** | `test_scenario_19_signed_audit_detects_tamper` | ✅ | `./scripts/verify-audit-chain.sh` for the CLI flow |
 | **TC-R5-03** | R5 | — | S1 | Run TC-R1-01 | Receipt for the denied action | `test_capability_guard_blocks_denied_tool` | ✅ | `tool_blocked`, `outcome=denied` |
-| **TC-R6-01** | R6 | — | S3 | Run any governed action | Receipt bound to agent | `test_governed_audit_log_stamps_session_and_agent_did` | ✅ | `agent.id` / `agent_did` on the entry |
+| **TC-R6-01** | R6 | — | S3 | Run any governed action | Receipt bound to agent | `test_governed_audit_log_stamps_session_and_agent_did`, `test_scenario_3_live_stack_receipts_carry_mesh_identity` (p2) | ✅ | `agent.id` / `agent_did` on the entry; the live stack stamps `did:mesh:…`, `mesh.did` and `mesh.signature` on the input, run and tool receipts |
 | **TC-R6-02** | R6 | T7 | S26 | Delegated shell request without a signed token | **DENY** | `test_scenario_26_unsigned_delegation_blocks_shell` (p2) | ✅ | `delegated_from` / `executed_by` in audit; verified token passes the check |
 | **TC-R6-03** | R6 | — | S19 | Verify a signed receipt against the agent identity | Verifies | `test_scenario_28_mesh_signed_audit_entry` (p2) | ✅ | `mesh.did`, `mesh.signature` (Ed25519) |
 

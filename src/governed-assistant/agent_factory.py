@@ -37,11 +37,15 @@ def build_governance_stack() -> list[Any]:
         bootstrap_phase2(allowed_tools=ALLOWED_TOOLS)
     kernel = GovernanceKernel(build_acs_host(approval_resolver=build_approval_resolver()))
     audit_log = build_audit_log()
+    # Resolve after bootstrap_phase2: with Phase 2 on this is the Mesh DID, so every receipt
+    # carries ``did:mesh:…`` plus ``mesh.did`` / ``mesh.signature`` (AARM R6). It falls back to
+    # the static AGENT_ID when Phase 2 is off.
+    agent_id = resolve_agent_id()
     return [
-        GovernedAuditTrailMiddleware(audit_log=audit_log, agent_did=AGENT_ID),
-        StreamingGovernancePolicyMiddleware(kernel=kernel, audit_log=audit_log, agent_id=AGENT_ID),
-        GovernedCapabilityGuardMiddleware(kernel=kernel, audit_log=audit_log, agent_id=AGENT_ID),
-        build_rogue_detection_middleware(agent_id=AGENT_ID, audit_log=audit_log),
+        GovernedAuditTrailMiddleware(audit_log=audit_log, agent_did=agent_id),
+        StreamingGovernancePolicyMiddleware(kernel=kernel, audit_log=audit_log, agent_id=agent_id),
+        GovernedCapabilityGuardMiddleware(kernel=kernel, audit_log=audit_log, agent_id=agent_id),
+        build_rogue_detection_middleware(agent_id=agent_id, audit_log=audit_log),
     ]
 
 
