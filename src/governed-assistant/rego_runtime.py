@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -14,34 +13,33 @@ from acs_host import DEFAULT_APPROVAL_TIMEOUT_SECONDS, AcsHost
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "policies" / "manifest.yaml"
 DEFAULT_BUNDLE = REPO_ROOT / "policies" / "rego"
-STOCK_REGO_ROOT = REPO_ROOT / "policy-engine" / "policy" / "lib"
+
+# Modules the bundle must contain. The AGT stock helpers (approval, budgets,
+# patterns, redact) are vendored from microsoft/agent-governance-toolkit at
+# tag v5.0.0 and committed in policies/rego alongside the project policy.
+REQUIRED_REGO_MODULES = (
+    "governed-assistant.rego",
+    "approval.rego",
+    "budgets.rego",
+    "patterns.rego",
+    "redact.rego",
+)
 
 
 def ensure_rego_bundle(*, bundle_dir: Path | None = None) -> Path:
-    """Ensure the Rego bundle contains the policy module and AGT stock library."""
+    """Verify the Rego bundle contains every module the policy imports.
+
+    The bundle is committed to the repository, so this only validates it and
+    never writes to it. Raises RuntimeError listing any missing modules.
+    """
     bundle = Path(bundle_dir or DEFAULT_BUNDLE).resolve()
-    bundle.mkdir(parents=True, exist_ok=True)
-
-    if not STOCK_REGO_ROOT.is_dir():
+    missing = [name for name in REQUIRED_REGO_MODULES if not (bundle / name).is_file()]
+    if missing:
         raise RuntimeError(
-            f"AGT stock Rego library not found at {STOCK_REGO_ROOT}. "
-            "Ensure policy-engine/policy/lib exists in the repository."
+            f"Rego bundle at {bundle} is missing: {', '.join(missing)}. "
+            "Restore them from policies/rego in the repository (stock helpers "
+            "come from microsoft/agent-governance-toolkit at v5.0.0)."
         )
-
-    for rego_file in STOCK_REGO_ROOT.glob("*.rego"):
-        if rego_file.name.endswith("_test.rego"):
-            continue
-        dest = bundle / rego_file.name
-        if not dest.exists() or rego_file.read_bytes() != dest.read_bytes():
-            shutil.copy2(rego_file, dest)
-
-    policy_file = bundle / "governed-assistant.rego"
-    if not policy_file.is_file():
-        raise RuntimeError(
-            f"Rego policy not found at {policy_file}. "
-            "Ensure policies/rego/governed-assistant.rego exists."
-        )
-
     return bundle
 
 

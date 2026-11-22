@@ -111,21 +111,37 @@ def test_no_removed_agt_runtime_apis_are_imported() -> None:
     assert offenders == []
 
 
+class _RecordingAuditLog:
+    """Captures audit events so tests can assert which policy rule denied a call."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def log(self, **kwargs) -> None:
+        self.events.append(kwargs)
+
+
 def test_capability_guard_blocks_denied_tool() -> None:
-    capability = next(
-        middleware
-        for middleware in build_governance_stack()
-        if isinstance(middleware, GovernedCapabilityGuardMiddleware)
+    """Scenario 1 at the middleware layer: the Scenario 1 rule must be the one that denies."""
+    audit = _RecordingAuditLog()
+    capability = GovernedCapabilityGuardMiddleware(
+        kernel=GovernanceKernel(_build_runtime()),
+        audit_log=audit,
+        agent_id=AGENT_ID,
     )
+    executed = False
 
     async def run() -> None:
+        nonlocal executed
         context = SimpleNamespace(
             function=SimpleNamespace(name="shell_execute"),
-            arguments={"command": "rm -rf /"},
+            arguments={"command": "ls -la"},
             result=None,
         )
 
         async def call_next() -> None:
+            nonlocal executed
+            executed = True
             context.result = "executed"
 
         with pytest.raises(MiddlewareTermination):
@@ -135,6 +151,47 @@ def test_capability_guard_blocks_denied_tool() -> None:
         assert "not permitted" in str(context.result).lower()
 
     asyncio.run(run())
+
+    assert executed is False
+    blocked = [event for event in audit.events if event.get("event_type") == "tool_blocked"]
+    assert len(blocked) == 1
+    # "not permitted" is the middleware's text for ANY deny, so assert the specific rule.
+    assert blocked[0]["data"]["reason"] == "tool_not_allowed"
+
+
+def test_scenario_1_shell_execute_denied_by_tool_not_allowed_rule() -> None:
+    """Scenario 1 rule (`tool_not_allowed`) evaluated directly at pre_tool_call."""
+    runtime = _build_runtime()
+    snapshot = _tool_snapshot("shell_execute", {"command": "ls -la"})
+    result = runtime.evaluate_intervention_point("pre_tool_call", snapshot)
+    assert result.verdict == "deny"
+    assert result.reason == "tool_not_allowed"
+    assert result.message == "Tool 'shell_execute' denied by policy"
+
+
+def test_scenario_1_shell_prompt_passes_input_then_denied_at_tool_stage() -> None:
+    """The user prompt must clear the input stage so the denial really comes from pre_tool_call."""
+    runtime = _build_runtime()
+    prompt = "Run this shell command: ls -la"
+
+    input_result = runtime.evaluate_intervention_point("input", _input_snapshot(prompt))
+    assert input_result.verdict == "allow"
+
+    tool_result = runtime.evaluate_intervention_point(
+        "pre_tool_call", _tool_snapshot("shell_execute", {"command": "ls -la"})
+    )
+    assert tool_result.verdict == "deny"
+    assert tool_result.reason == "tool_not_allowed"
+
+
+def test_scenario_1_rm_rf_prompt_is_stopped_at_input_by_scenario_2() -> None:
+    """A prompt containing `rm -rf` never reaches the tool stage: Scenario 2 blocks it at input."""
+    runtime = _build_runtime()
+    result = runtime.evaluate_intervention_point(
+        "input", _input_snapshot("Run this shell command: rm -rf /tmp/test")
+    )
+    assert result.verdict == "deny"
+    assert result.reason == "blocked_pattern_input"
 
 
 def test_capability_guard_allows_calculator() -> None:
@@ -744,6 +801,54 @@ def test_scenario_11_audit_enriches_otel_fields() -> None:
     assert payload["aarm.decision"] == "deny"
     assert payload["aarm.threat_class"] == "T1"
     assert payload["agent.id"] == "governed-assistant"
+
+
+def test_otel_audit_mirror_accepts_agentmesh_entries() -> None:
+    """Regression: OTelLogsBackend crashed on agentmesh AuditEntry (no agent_id)."""
+    from governance_audit import _OtelEnrichedSink
+
+    written: list[object] = []
+
+    class _Inner:
+        def write(self, entry: object) -> None:
+            written.append(entry)
+
+        def flush(self) -> None:
+            pass
+
+    class _Backend:
+        def __init__(self) -> None:
+            self.entries: list[object] = []
+
+        def write(self, entry: object) -> None:
+            # Mirrors OTelLogsBackend.write(), which reads these attributes.
+            self.entries.append(
+                (entry.agent_id, entry.event_type, entry.action, entry.decision, entry.metadata)
+            )
+
+        def flush(self) -> None:
+            pass
+
+    sink = _OtelEnrichedSink(_Inner())
+    backend = _Backend()
+    sink._otel = backend
+
+    entry = GovernedAuditLog().log(
+        event_type="agent_invocation",
+        agent_did=AGENT_ID,
+        action="start",
+        data={"reason": "ok"},
+        policy_decision="allow",
+    )
+    sink.write(entry)
+
+    assert written == [entry]
+    agent_id, event_type, action, decision, metadata = backend.entries[0]
+    assert agent_id == AGENT_ID
+    assert event_type == "agent_invocation"
+    assert action == "start"
+    assert decision == "allow"
+    assert metadata["entry_id"] == entry.entry_id
 
 
 def test_governance_session_poisoned_read_file() -> None:

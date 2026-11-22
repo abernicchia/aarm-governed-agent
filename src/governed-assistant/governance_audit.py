@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agentmesh.governance import AuditEntry, AuditLog
+
+_logger = logging.getLogger(__name__)
 
 _BAGGAGE_SESSION_ID = "azure.ai.agentserver.session_id"
 _ALTERNATE_AGENT_DIDS = frozenset({"capability-guard"})
@@ -154,6 +157,54 @@ def _current_agent_id() -> str:
     return "governed-assistant"
 
 
+def _to_otel_audit_entry(entry: AuditEntry) -> Any:
+    """Adapt an ``agentmesh`` AuditEntry to the shape ``OTelLogsBackend`` expects.
+
+    ``agent_os.otel_audit_backend.OTelLogsBackend`` reads ``agent_id``,
+    ``decision``, ``reason``, ``latency_ms`` and ``metadata`` from
+    ``agent_os.audit_logger.AuditEntry``, while the governance middleware
+    produces ``agentmesh.governance.AuditEntry`` (``agent_did``,
+    ``policy_decision``, ``data``, ...). Passing the latter directly raises
+    ``AttributeError: 'AuditEntry' object has no attribute 'agent_id'``.
+    """
+    from agent_os.audit_logger import AuditEntry as OtelAuditEntry
+
+    data = dict(getattr(entry, "data", None) or {})
+    metadata: dict[str, Any] = dict(data)
+    for key in ("entry_id", "session_id", "trace_id", "resource", "outcome"):
+        value = getattr(entry, key, None)
+        if value is not None:
+            metadata[key] = value
+
+    latency_ms = 0.0
+    issued_at = getattr(entry, "issued_at", None)
+    completed_at = getattr(entry, "completed_at", None)
+    if issued_at is not None and completed_at is not None:
+        try:
+            latency_ms = (completed_at - issued_at).total_seconds() * 1000.0
+        except Exception:
+            latency_ms = 0.0
+
+    timestamp = getattr(entry, "timestamp", None)
+    return OtelAuditEntry(
+        timestamp=(
+            timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp)
+        ),
+        event_type=entry.event_type,
+        agent_id=entry.agent_did,
+        action=entry.action,
+        decision=(
+            getattr(entry, "policy_decision", None)
+            or data.get("aarm.decision")
+            or getattr(entry, "outcome", "")
+            or ""
+        ),
+        reason=str(data.get("reason") or ""),
+        latency_ms=latency_ms,
+        metadata=metadata,
+    )
+
+
 class _OtelEnrichedSink:
     """Wraps an audit sink and mirrors entries to OTEL logs when available."""
 
@@ -172,7 +223,11 @@ class _OtelEnrichedSink:
     def write(self, entry: AuditEntry) -> None:
         self._inner.write(entry)
         if self._otel is not None:
-            self._otel.write(entry)
+            # Telemetry mirroring must never break the governed invocation.
+            try:
+                self._otel.write(_to_otel_audit_entry(entry))
+            except Exception:
+                _logger.debug("OTEL audit mirror failed", exc_info=True)
 
     def flush(self) -> None:
         self._inner.flush()

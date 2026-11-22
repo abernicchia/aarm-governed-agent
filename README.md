@@ -27,7 +27,7 @@ Foundry Responses host (main.py)
        AgentControl      (agent_control_specification)  ← policies/manifest.yaml
                  │
                  ▼
-       OPA / Rego bundle (policies/rego + policy-engine/policy/lib)
+       OPA / Rego bundle (policies/rego)
 ```
 
 STEP_UP (`update_customer_record`) is resolved through the ACS approval resolver in `governance_policy.py`, which returns an `ApprovalResolution`. The wait is bounded by `approval.timeout_seconds` in the manifest (default 300 s) and denies on expiry.
@@ -39,8 +39,8 @@ STEP_UP (`update_customer_record`) is resolved through the ACS approval resolver
 ├── policies/
 │   ├── manifest.yaml                       # ACS manifest (intervention points, tool catalog)
 │   └── rego/
-│       └── governed-assistant.rego         # Rego rules for all AARM scenarios
-├── policy-engine/policy/lib/               # AGT stock Rego helpers (redact, budgets, approval)
+│       ├── governed-assistant.rego         # Rego rules for all AARM scenarios
+│       └── approval/budgets/patterns/redact.rego  # AGT v5.0.0 stock helpers (unmodified)
 └── src/governed-assistant/
     ├── Dockerfile                          # Container image (OPA + Rego policies)
     ├── main.py                             # Foundry Responses host entry point
@@ -123,6 +123,10 @@ Validate the Rego bundle directly:
 opa check policies/rego/
 ```
 
+### AGT stock Rego helpers
+
+`approval.rego`, `budgets.rego`, `patterns.rego` and `redact.rego` in `policies/rego/` are copied unmodified from [microsoft/agent-governance-toolkit](https://github.com/microsoft/agent-governance-toolkit) at tag `v5.0.0` (from that repo's `policy-engine/policy/lib/` directory). They are not installed by `requirements.txt`, because the AGT Python packages don't include them. To upgrade, copy the files again from the new tag and verify with `opa check policies/rego/`. `rego_runtime.ensure_rego_bundle()` checks that they are present but does not copy or update them.
+
 ## 3. Run locally against Foundry
 
 Authenticate and start the agent host on `http://localhost:8088`:
@@ -131,6 +135,10 @@ Authenticate and start the agent host on `http://localhost:8088`:
 azd auth login
 azd ai agent run
 ```
+
+`azd ai agent run` also starts the **Foundry Agent Inspector**, a web playground for the local agent at `http://127.0.0.1:8087`. Open it in your browser to chat with the agent instead of using the terminal. Pass `--no-client` to `azd ai agent run` to skip it.
+
+If the playground doesn't start and the output says port 8087 is in use, a previous run is still holding the port. Stop that run (Ctrl+C in its terminal) and start again. The agent itself keeps running on port 8088 either way.
 
 In another terminal, invoke the local agent:
 

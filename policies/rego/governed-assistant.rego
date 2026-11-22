@@ -1,5 +1,5 @@
 # Governed Assistant — OPA/Rego policies for AARM scenarios
-# Evaluated at input and pre_tool_call intervention points via ACS manifest.
+# Evaluated at input, pre_tool_call, and post_tool_call intervention points via ACS manifest.
 
 package governed_assistant
 

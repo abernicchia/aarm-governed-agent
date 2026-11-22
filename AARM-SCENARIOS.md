@@ -12,7 +12,7 @@ AGT is listed as **AARM Extended** on the [builder registry](https://aarm.dev/bu
 
 | Layer | Role |
 | --- | --- |
-| **Rego policies** | `policies/rego/governed-assistant.rego` + AGT stock helpers in `policy-engine/policy/lib/` |
+| **Rego policies** | `policies/rego/governed-assistant.rego` + AGT v5.0.0 stock helpers in `policies/rego/` |
 | **ACS manifest** | `policies/manifest.yaml` — binds policies to intervention points and tool catalog |
 | **OPA** | Policy engine invoked by ACS Rust core — returns allow/deny/transform verdicts (STEP_UP is `escalate` on ACS 0.3.x, `deny` + `approval` block on ACS ≥ 0.4) |
 | **ACS runtime** | `AgentControl.from_path(manifest, approval_resolver=…)` — evaluates intervention points and resolves approvals (`ApprovalResolution`) |
@@ -42,8 +42,8 @@ Configuration touchpoints:
 | --- | --- |
 | `policies/rego/governed-assistant.rego` | Rego rules for all AARM scenarios |
 | `policies/manifest.yaml` | ACS manifest (intervention points, tool catalog, approval) |
-| `policy-engine/policy/lib/` | AGT stock Rego helpers (`redact`, `budgets`, `approval`, …) |
-| `rego_runtime.py` | `build_acs_host()` — ensures the Rego bundle, loads the manifest with `AgentControl.from_path`, reads `approval.timeout_seconds` |
+| `policies/rego/{approval,budgets,patterns,redact}.rego` | AGT v5.0.0 stock Rego helpers (unmodified) |
+| `rego_runtime.py` | `build_acs_host()` — verifies the Rego bundle, loads the manifest with `AgentControl.from_path`, reads `approval.timeout_seconds` |
 | `acs_host.py` | ACS host seam: `SnapshotBuilder`, `HostContext`, `AcsHost`, `PolicyResult` |
 | `governance_policy.py` | ACS approval resolver (`ApprovalResolution`) and manifest bootstrap |
 | `agent_factory.py` | Middleware stack wired to one `GovernanceKernel` |
@@ -75,7 +75,7 @@ AARM defines five decisions: **ALLOW**, **DENY**, **MODIFY**, **STEP_UP**, **DEF
 **Configuration flow:**
 
 ```text
-policies/rego/governed-assistant.rego + policy-engine/policy/lib/*.rego
+policies/rego/*.rego (governed-assistant + AGT stock helpers)
         ↓  policies/manifest.yaml
 AgentControl (ACS runtime) ← AcsHost (snapshots, approval resolver, timeout)
         ↓  PolicyResult (allow / deny / transform; STEP_UP resolved to allow or deny)
@@ -94,25 +94,30 @@ StreamingGovernancePolicyMiddleware / GovernedCapabilityGuardMiddleware
 
 **Important:** Like Scenario 8, denial runs at **`pre_tool_call`** — the model must invoke `shell_execute`. Restart the agent after instruction changes.
 
+**Do not put `rm -rf` in the prompt.** The input-stage rule from Scenario 2 blocks any message containing `rm -rf` (`blocked_pattern_input`, "Blocked by input policy") before the model runs, so no tool call is made and the Scenario 1 rule is never reached. Use a prompt that clears the input stage, such as `ls -la`.
+
 **Try it:**
 
 ```bash
-azd ai agent invoke --local "Run this shell command: rm -rf /tmp/test"
+azd ai agent invoke --local "Run this shell command: ls -la"
 ```
 
 Or offline:
 
 ```bash
-cd src/governed-assistant && python -m pytest tests/test_governance.py::test_capability_guard_blocks_denied_tool -v
+cd src/governed-assistant && python -m pytest tests/test_governance.py -k "scenario_1_ or test_capability_guard_blocks_denied_tool" -v
 ```
 
 **What AGT does:**
 
-1. Model selects `shell_execute` (registered in `tools.py`).
-2. `GovernedCapabilityGuardMiddleware` routes the call through Rego at **`pre_tool_call`**.
-3. Rego denies `shell_execute` → **DENY**.
-4. Middleware sets *"Tool 'shell_execute' is not permitted"* and raises `MiddlewareTermination`.
-5. The Python function body never runs.
+1. The prompt clears the `input` stage (no Scenario 2/4/6 rule matches).
+2. Model selects `shell_execute` (registered in `tools.py`).
+3. `GovernedCapabilityGuardMiddleware` routes the call through Rego at **`pre_tool_call`**.
+4. Rego rule **"Scenario 1 — Block dangerous tools"** in `governed-assistant.rego` matches `shell_execute` → **DENY** with reason `tool_not_allowed` (message *"Tool 'shell_execute' denied by policy"*). It is reached only after the earlier rules in the `verdict` chain (budget, Scenarios 16, 23, 22, 26, 12, 18) fail to match; if the session is poisoned (Scenario 18) or the delegation is unsigned (Scenario 26), those rules deny first with their own reason.
+5. Middleware sets the result to *"⛔ Tool 'shell_execute' is not permitted by governance policy"*, logs a `tool_blocked` audit event, and raises `MiddlewareTermination`.
+6. The Python function body never runs.
+
+**Tests:** `test_scenario_1_shell_execute_denied_by_tool_not_allowed_rule` asserts the rule's reason directly; `test_capability_guard_blocks_denied_tool` asserts the middleware logged `tool_not_allowed` and never called the tool; `test_scenario_1_shell_prompt_passes_input_then_denied_at_tool_stage` and `test_scenario_1_rm_rf_prompt_is_stopped_at_input_by_scenario_2` pin down the input-versus-tool-stage behavior.
 
 **Why this is AARM R1:** Interception is mandatory; no tool executes without passing Rego + middleware.
 
@@ -355,9 +360,9 @@ cd src/governed-assistant && python -m pytest tests/test_governance.py::test_cap
 
 1. **`input`**: no forbidden pattern → **ALLOW** for calculator/time prompts.
 2. Model calls `calculator` or `get_current_time` → Rego **`pre_tool_call`** → **ALLOW** (tools in catalog and not denied).
-3. Model calls `shell_execute` → Rego **`pre_tool_call`** → **DENY** (`tool_not_allowed`); middleware sets *"Tool 'shell_execute' is not permitted"* and the stub never runs.
+3. Model calls `shell_execute` → Rego **`pre_tool_call`** → **DENY** (`tool_not_allowed`); middleware sets *"⛔ Tool 'shell_execute' is not permitted by governance policy"* and the stub never runs.
 
-**What you see:** Correct answers for calculator/time; shell invoke returns *"Tool 'shell_execute' is not permitted"* (or similar) instead of executing the command. Agent host stdout: audit JSON with `"event_type": "tool_blocked"`.
+**What you see:** Correct answers for calculator/time; shell invoke returns *"⛔ Tool 'shell_execute' is not permitted by governance policy"* (or similar) instead of executing the command. Agent host stdout: audit JSON with `"event_type": "tool_blocked"`.
 
 ---
 

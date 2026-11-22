@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 WORKDIR /app
 
 COPY policies /app/policies
-COPY policy-engine/policy/lib/*.rego /app/policies/rego/
 COPY src/governed-assistant/requirements.txt /app/src/governed-assistant/requirements.txt
 RUN pip install --no-cache-dir -r /app/src/governed-assistant/requirements.txt
 

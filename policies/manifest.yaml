@@ -27,22 +27,13 @@ intervention_points:
       id: governed_assistant
     tool_name_from: "$.tool_call.name"
 tools:
-  calculator:
-    clearance: public
-  get_current_time:
-    clearance: public
-  read_file:
-    clearance: public
-  write_file:
-    clearance: public
-  send_email:
-    clearance: public
-  query_database:
-    clearance: public
-  http_request:
-    clearance: public
-  update_customer_record:
-    clearance: public
-  shell_execute:
-    clearance: denied
+  calculator: {}
+  get_current_time: {}
+  read_file: {}
+  write_file: {}
+  send_email: {}
+  query_database: {}
+  http_request: {}
+  update_customer_record: {}
+  shell_execute: {}
 approval: {}
