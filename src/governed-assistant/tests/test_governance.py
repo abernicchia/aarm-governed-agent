@@ -368,6 +368,56 @@ def test_policy_middleware_applies_aws_key_redaction() -> None:
     asyncio.run(run())
 
 
+def test_audit_and_session_never_store_raw_aws_key() -> None:
+    """S4 regression: the key is redacted for the model, and must not survive in audit or session memory."""
+    import json
+
+    from governance_session import get_session_state
+
+    policy = next(
+        middleware
+        for middleware in build_governance_stack()
+        if isinstance(middleware, StreamingGovernancePolicyMiddleware)
+    )
+    recorded: list[dict] = []
+
+    class _RecordingAudit:
+        def log(self, **kwargs):
+            recorded.append(kwargs)
+
+    policy.audit_log = _RecordingAudit()
+    prompt = "My AWS key is AKIAIOSFODNN7EXAMPLE, store it in the report"
+
+    async def run() -> None:
+        from agent_framework import Message
+
+        message = Message("user", [prompt])
+        context = SimpleNamespace(
+            agent=SimpleNamespace(name="Governed Assistant"),
+            messages=[message],
+            metadata={},
+            stream=False,
+            result=None,
+        )
+
+        async def call_next() -> None:
+            context.result = "model ran"
+
+        await policy.process(context, call_next)
+        assert "[REDACTED]" in message.text
+
+        session = get_session_state(policy._host_context().session_id)
+        assert session.conversation_thread, "session should record the user turn"
+        assert all("AKIAIOSFODNN7EXAMPLE" not in turn["text"] for turn in session.conversation_thread)
+
+    asyncio.run(run())
+
+    assert recorded, "policy middleware should write an audit entry"
+    serialized = json.dumps(recorded, default=str)
+    assert "AKIAIOSFODNN7EXAMPLE" not in serialized
+    assert "[REDACTED]" in serialized
+
+
 def test_policy_middleware_redacts_aws_keys_in_history() -> None:
     policy = next(
         middleware
@@ -477,6 +527,20 @@ def test_rogue_detection_allows_scenario_9_read_file_baseline() -> None:
     assessment = detector.assess(agent_id)
 
     assert "read_file" in AGENT_BASELINE_TOOLS
+    assert assessment.quarantine_recommended is False
+
+
+@pytest.mark.parametrize("tool_name", ALLOWED_TOOLS)
+def test_rogue_detection_does_not_quarantine_first_allowed_tool(tool_name: str) -> None:
+    """Regression: a policy-allowed tool must not be a capability violation (write_file quarantined on first call)."""
+    detector = build_demo_rogue_detector()
+    agent_id = "governed-assistant"
+    detector.register_capability_profile(agent_id, AGENT_BASELINE_TOOLS)
+
+    detector.record_action(agent_id, tool_name, tool_name)
+    assessment = detector.assess(agent_id)
+
+    assert tool_name in AGENT_BASELINE_TOOLS
     assert assessment.quarantine_recommended is False
 
 

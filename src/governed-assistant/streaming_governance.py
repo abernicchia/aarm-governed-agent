@@ -20,7 +20,7 @@ from agent_framework import (
 from acs_host import HostContext
 from governance_audit import enrich_audit_data, resolve_session_id
 from governance_kernel import GovernanceKernel
-from governance_session import get_session_state
+from governance_session import get_session_state, redact_aws_keys
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
             state.pending_defer = {
                 "reason": result.reason,
                 "missing_context": missing,
-                "original": last_message_text[:500],
+                "original": redact_aws_keys(last_message_text)[:500],
             }
             _set_stream_aware_message(context, _defer_message(missing))
 
@@ -179,7 +179,7 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
                             "reason": result.reason,
                             "verdict": result.verdict,
                             "missing_context": missing,
-                            "message_preview": last_message_text[:200],
+                            "message_preview": redact_aws_keys(last_message_text)[:200],
                         },
                         decision="defer",
                         session_id=ctx.session_id,
@@ -210,7 +210,7 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
                         {
                             "reason": reason,
                             "verdict": result.verdict,
-                            "message_preview": last_message_text[:200],
+                            "message_preview": redact_aws_keys(last_message_text)[:200],
                         },
                         decision=decision,
                         threat_class="T1",
@@ -262,7 +262,7 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
                 action="allow",
                 data=enrich_audit_data(
                     {
-                        "message_preview": last_message_text[:200],
+                        "message_preview": redact_aws_keys(last_message_text)[:200],
                         "verdict": result.verdict,
                         "transformed": result.transform is not None or redacted_count > 0,
                         "history_messages_redacted": redacted_count,

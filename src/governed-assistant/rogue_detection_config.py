@@ -7,12 +7,13 @@ from typing import Any
 
 from agent_os.integrations.maf_adapter import RogueDetectionMiddleware
 
-AGENT_BASELINE_TOOLS = [
-    "calculator",
-    "get_current_time",
-    "read_file",
-    "http_request",
-]
+from tools import ALLOWED_TOOLS
+
+# The capability profile must match the policy's allow-list (tools.ALLOWED_TOOLS).
+# A narrower profile made any allowed-but-unlisted tool (write_file, send_email, ...)
+# a capability violation: as the first call after a restart it scored 1.00 and was
+# quarantined at MEDIUM risk, even though the policy allowed it.
+AGENT_BASELINE_TOOLS = list(ALLOWED_TOOLS)
 
 
 def rogue_demo_mode_enabled() -> bool:

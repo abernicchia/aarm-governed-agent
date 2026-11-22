@@ -22,6 +22,16 @@ _POISON_MARKERS = (
     "disable governance",
 )
 
+# Same pattern as the AWS key rule in policies/rego/governed-assistant.rego (S4).
+# Applied before text is kept in session memory or written to the audit log,
+# so a raw key never outlives the request that sent it.
+_AWS_KEY = re.compile(r"AKIA[0-9A-Z]{16}")
+
+
+def redact_aws_keys(text: str) -> str:
+    return _AWS_KEY.sub("[REDACTED]", text)
+
+
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, SessionState] = {}
 
@@ -69,7 +79,7 @@ class SessionState:
             return
         match = _INTENT_PREFIX.match(text.strip())
         if match:
-            self.session_intent = match.group(1).strip()
+            self.session_intent = redact_aws_keys(match.group(1).strip())
         delegated = parse_delegated_from(text)
         if delegated:
             self.delegated_from = delegated
@@ -84,7 +94,7 @@ class SessionState:
     def append_conversation_turn(self, role: str, text: str) -> None:
         if not text:
             return
-        self.conversation_thread.append({"role": role, "text": str(text)[:500]})
+        self.conversation_thread.append({"role": role, "text": redact_aws_keys(str(text))[:500]})
         self.message_count += 1
         if len(self.conversation_thread) > 20:
             self.conversation_thread = self.conversation_thread[-20:]
