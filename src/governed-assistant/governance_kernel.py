@@ -29,7 +29,18 @@ class GovernanceKernel:
         except Exception:
             pass
 
-    async def evaluate_input(self, ctx: HostContext, input_data: Any) -> PolicyResult:
+    async def evaluate_input(
+        self,
+        ctx: HostContext,
+        input_data: Any,
+        *,
+        ingest: bool = True,
+    ) -> PolicyResult:
+        """Evaluate the `input` point.
+
+        ``ingest=False`` evaluates the text without recording it as a conversation
+        turn (used for replayed history and for the S31 deferred-request re-check).
+        """
         body: Any
         if isinstance(input_data, (str, dict)):
             body = input_data
@@ -39,7 +50,8 @@ class GovernanceKernel:
             body = str(input_data)
 
         state = get_session_state(ctx.session_id)
-        state.ingest_user_message(body if isinstance(body, str) else str(body))
+        if ingest:
+            state.ingest_user_message(body if isinstance(body, str) else str(body))
         self._enrich_state(ctx)
 
         snapshot = self.host.builder_for(ctx).input(body=body)
@@ -75,7 +87,9 @@ class GovernanceKernel:
             call_id=call_id,
         )
         snapshot = inject_governance_snapshot(snapshot, ctx.session_id)
-        return await self.host.aevaluate("pre_tool_call", snapshot)
+        result = await self.host.aevaluate("pre_tool_call", snapshot)
+        state.record_drift_point(tool_name, result.decision)
+        return result
 
     async def evaluate_post_tool_call(
         self,

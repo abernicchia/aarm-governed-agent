@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Any, Awaitable, Callable
 
 from agent_framework import (
@@ -19,6 +20,7 @@ from agent_framework import (
 from acs_host import HostContext
 from governance_audit import enrich_audit_data, resolve_session_id
 from governance_kernel import GovernanceKernel
+from governance_session import get_session_state
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,8 @@ async def _apply_redaction_transform(
     if not text:
         return False
 
-    result = await kernel.evaluate_input(ctx, text)
+    # Replayed history is not a new turn: evaluate it for redaction only.
+    result = await kernel.evaluate_input(ctx, text, ingest=False)
     transformed = result.transformed_value
     if result.transform is not None and isinstance(transformed, str) and transformed != text:
         _apply_input_text_transform(message, transformed)
@@ -64,7 +67,19 @@ async def _apply_redaction_transform(
 
 def _set_stream_aware_denial(context: Any, reason: str) -> None:
     """Return a user-visible denial that works for both streaming and non-streaming runs."""
-    message = f"⛔ Policy violation: {reason}"
+    _set_stream_aware_message(context, f"⛔ Policy violation: {reason}")
+
+
+def _defer_message(missing_context: list[str]) -> str:
+    fields = ", ".join(missing_context)
+    return (
+        f"⏸ Deferred: I need [{fields}] before I can continue. "
+        "Please provide it and I will re-check the request."
+    )
+
+
+def _set_stream_aware_message(context: Any, message: str) -> None:
+    """Set a policy reply that works for both streaming and non-streaming runs."""
     if getattr(context, "stream", False):
 
         async def _denial_updates() -> Any:
@@ -133,9 +148,49 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
                 redacted_count += 1
 
         result = await self.kernel.evaluate_input(ctx, last_message_text)
+        decision = result.decision
+        action_id = uuid.uuid4().hex[:12]
+        state = get_session_state(ctx.session_id)
 
         metadata: dict[str, Any] = getattr(context, "metadata", {})
         metadata["governance_decision"] = result
+        metadata["governance_action_id"] = action_id
+
+        if decision == "defer":
+            # S31: pause. Nothing runs; remember what is missing so the follow-up resumes it.
+            missing = result.missing_context
+            logger.info(
+                "Policy DEFER (ACS input) for agent '%s': missing %s", agent_name, missing
+            )
+            state.pending_defer = {
+                "reason": result.reason,
+                "missing_context": missing,
+                "original": last_message_text[:500],
+            }
+            _set_stream_aware_message(context, _defer_message(missing))
+
+            if self.audit_log:
+                self.audit_log.log(
+                    event_type="policy_deferred",
+                    agent_did=self._agent_id,
+                    action="defer",
+                    data=enrich_audit_data(
+                        {
+                            "reason": result.reason,
+                            "verdict": result.verdict,
+                            "missing_context": missing,
+                            "message_preview": last_message_text[:200],
+                        },
+                        decision="defer",
+                        session_id=ctx.session_id,
+                        action_id=action_id,
+                        intervention_point="input",
+                    ),
+                    outcome="deferred",
+                    policy_decision="defer",
+                )
+
+            raise MiddlewareTermination(result.reason)
 
         if not result.allowed:
             reason = result.reason or "policy_violation"
@@ -157,11 +212,14 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
                             "verdict": result.verdict,
                             "message_preview": last_message_text[:200],
                         },
-                        decision=result.verdict,
+                        decision=decision,
                         threat_class="T1",
+                        session_id=ctx.session_id,
+                        action_id=action_id,
+                        intervention_point="input",
                     ),
                     outcome="denied",
-                    policy_decision=result.verdict,
+                    policy_decision=decision,
                 )
 
             raise MiddlewareTermination(reason)
@@ -170,7 +228,7 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
         if result.transform is not None and isinstance(transformed, str) and last_msg is not None:
             _apply_input_text_transform(last_msg, transformed)
 
-        policy_decision = result.verdict
+        policy_decision = decision
         if redacted_count or result.transform is not None:
             policy_decision = "modify"
         logger.debug(
@@ -180,7 +238,24 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
             f" ({redacted_count} history message(s) redacted)" if redacted_count else "",
         )
 
+        resumed = await self._resume_deferred(ctx, state, last_message_text)
+
         if self.audit_log:
+            if resumed is not None:
+                self.audit_log.log(
+                    event_type="defer_resolved",
+                    agent_did=self._agent_id,
+                    action="resume",
+                    data=enrich_audit_data(
+                        {
+                            "missing_context": resumed["missing_context"],
+                            "original_preview": resumed["original"][:200],
+                            "resumed_by_action_id": action_id,
+                        },
+                        session_id=ctx.session_id,
+                    ),
+                    outcome="success",
+                )
             self.audit_log.log(
                 event_type="policy_evaluation",
                 agent_did=self._agent_id,
@@ -193,9 +268,34 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
                         "history_messages_redacted": redacted_count,
                     },
                     decision=policy_decision,
+                    session_id=ctx.session_id,
+                    action_id=action_id,
+                    intervention_point="input",
                 ),
                 outcome="success",
                 policy_decision=policy_decision,
             )
 
         await call_next()
+
+    async def _resume_deferred(
+        self,
+        ctx: HostContext,
+        state: Any,
+        follow_up: str,
+    ) -> dict[str, Any] | None:
+        """Re-check a pending DEFER with the user's follow-up merged into the original request.
+
+        An unrelated follow-up merges into a request that still defers, so the DEFER
+        stays pending; supplying the missing context clears it. Returns the cleared
+        DEFER, or ``None`` when nothing was pending or it is still unresolved.
+        """
+        pending = state.pending_defer
+        if not pending:
+            return None
+        merged = f"{pending['original']} {follow_up}"
+        recheck = await self.kernel.evaluate_input(ctx, merged, ingest=False)
+        if recheck.decision == "defer" or not recheck.allowed:
+            return None
+        state.pending_defer = None
+        return pending

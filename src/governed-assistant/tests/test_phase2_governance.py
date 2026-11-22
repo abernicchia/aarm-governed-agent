@@ -249,3 +249,75 @@ def test_phase2_post_tool_middleware_blocks_poisoned_output() -> None:
         reset_session_state("sess-post-tool")
 
     asyncio.run(run())
+
+
+# ── S30 — R7/T6: drift timeline and aligned baseline ─────────────────────────────
+
+
+def test_scenario_30_aligned_session_stays_flat_and_allowed() -> None:
+    """TC-R7-02: 15 in-scope turns keep drift at zero and produce no denial (no false positive)."""
+    from governance_drift import drift_threshold
+    from governance_evidence import run_drift_session
+
+    reset_session_state("evidence-aligned")
+    run = asyncio.run(run_drift_session(drifting=False, turns=15))
+
+    assert len(run.timeline) == 15
+    assert run.denied_turns == []
+    assert all(point["decision"] == "allow" for point in run.timeline)
+    assert run.max_drift < drift_threshold()
+    assert run.max_drift == 0.0
+
+
+def test_scenario_30_drifting_session_rises_and_is_denied_late() -> None:
+    """TC-R7-01: same intent, but from turn 10 the tools move toward export/write/execute."""
+    from governance_drift import drift_threshold
+    from governance_evidence import run_drift_session
+
+    reset_session_state("evidence-drifting")
+    run = asyncio.run(run_drift_session(drifting=True, turns=15, drift_from_turn=10))
+
+    early, late = run.timeline[:9], run.timeline[9:]
+    assert all(point["decision"] == "allow" and point["drift_score"] == 0.0 for point in early)
+    assert all(point["decision"] == "deny" and point["drift_score"] > 0.0 for point in late)
+    assert run.denied_turns[0] == 10
+    assert run.max_drift >= drift_threshold()
+
+
+def test_scenario_30_timeline_is_exported_in_receipts_and_matches_the_session() -> None:
+    from governance_evidence import decision_records, run_drift_session
+
+    reset_session_state("evidence-drifting")
+    run = asyncio.run(run_drift_session(drifting=True, turns=15, drift_from_turn=10))
+
+    from_receipts = [point["drift_score"] for point in run.timeline]
+    from_session = [point["drift_score"] for point in run.state_timeline]
+    assert from_receipts == from_session
+    assert len(from_session) == 15
+
+    pre = [r for r in decision_records(run.entries) if r["point"] == "pre_tool_call"]
+    assert len(pre) == 15
+    assert all(r["policy_context"] is not None for r in pre)
+    flat = [e.data["aarm.drift_score"] for e in run.entries if e.data.get("aarm.intervention_point") == "pre_tool_call"]
+    assert flat == from_receipts
+
+
+def test_scenario_30_report_reads_a_signed_audit_file(tmp_path, monkeypatch) -> None:
+    """A live session can be reported from the exported JSONL, not only in process."""
+    from governance_evidence import drift_timeline_from_entries, load_jsonl, run_drift_session
+
+    audit_path = tmp_path / "drift.jsonl"
+    monkeypatch.setenv("GOVERNANCE_SIGNED_AUDIT", "1")
+    monkeypatch.setenv("GOVERNANCE_AUDIT_FILE", str(audit_path))
+    monkeypatch.setenv("GOVERNANCE_AUDIT_SECRET", "drift-test-secret")
+
+    # The evidence stack captures in memory, so write its entries through the signed sink.
+    reset_session_state("evidence-drifting")
+    run = asyncio.run(run_drift_session(drifting=True, turns=12, drift_from_turn=10))
+    sink = build_audit_sink()
+    for entry in run.entries:
+        sink.write(entry)
+
+    timeline = drift_timeline_from_entries(load_jsonl(audit_path))
+    assert [p["drift_score"] for p in timeline] == [p["drift_score"] for p in run.timeline]
+    assert [p["decision"] for p in timeline] == [p["decision"] for p in run.timeline]

@@ -27,6 +27,7 @@ from agent_control_specification import (
 )
 
 DEFAULT_APPROVAL_TIMEOUT_SECONDS = 300.0
+DEFER_REASON_PREFIX = "defer_missing_"
 
 
 def _utcnow_iso() -> str:
@@ -127,6 +128,34 @@ class PolicyResult:
         return str(self.evaluation.verdict.reason or "")
 
     @property
+    def decision(self) -> str:
+        """The AARM decision: one of ``allow``, ``deny``, ``modify``, ``step_up``, ``defer``.
+
+        ACS has no DEFER verdict, so Rego signals it with a deny whose reason starts
+        with ``defer_missing_``; the host surfaces it as its own decision (S31).
+        """
+        if self.missing_context:
+            return "defer"
+        if self.approval is not None:
+            return "step_up"
+        verdict = self.verdict
+        if verdict == "transform":
+            return "modify"
+        if verdict == "escalate":
+            return "step_up"
+        if verdict == "warn":
+            return "allow"
+        return verdict
+
+    @property
+    def missing_context(self) -> list[str]:
+        """Fields a DEFER is waiting for, e.g. ``["invoice_id"]``; empty when not deferred."""
+        reason = self.reason
+        if self.evaluation.verdict.decision == Decision.DENY and reason.startswith(DEFER_REASON_PREFIX):
+            return [reason[len(DEFER_REASON_PREFIX):]]
+        return []
+
+    @property
     def message(self) -> str:
         return str(self.evaluation.verdict.message or "")
 
@@ -152,6 +181,7 @@ class PolicyResult:
     def audit_record(self) -> dict[str, Any]:
         return {
             "verdict": self.verdict,
+            "decision": self.decision,
             "reason_code": self.reason,
             "approval": self.approval,
             "input_identity": self.input_identity,

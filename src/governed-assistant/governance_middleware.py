@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any, Awaitable, Callable
 
 from agent_framework import FunctionMiddleware, MiddlewareTermination
@@ -98,6 +99,7 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
             args_dict = {"_value": raw_args}
 
         ctx = self._host_context()
+        action_id = uuid.uuid4().hex[:12]
         pre_result = await self.kernel.evaluate_pre_tool_call(
             ctx,
             tool_name=func_name,
@@ -122,12 +124,16 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
                             "tool": func_name,
                             "reason": reason,
                             "verdict": pre_result.verdict,
+                            "approval": pre_result.approval,
                         },
-                        decision=pre_result.verdict,
+                        decision=pre_result.decision,
                         threat_class=_threat_class_for_reason(reason),
+                        session_id=ctx.session_id,
+                        action_id=action_id,
+                        intervention_point="pre_tool_call",
                     ),
                     outcome="denied",
-                    policy_decision=pre_result.verdict,
+                    policy_decision=pre_result.decision,
                 )
 
             raise MiddlewareTermination(
@@ -146,9 +152,15 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
                 agent_did="capability-guard",
                 action="start",
                 resource=func_name,
-                data=enrich_audit_data({"tool": func_name}, decision="allow"),
+                data=enrich_audit_data(
+                    {"tool": func_name, "approval": pre_result.approval},
+                    decision=pre_result.decision,
+                    session_id=ctx.session_id,
+                    action_id=action_id,
+                    intervention_point="pre_tool_call",
+                ),
                 outcome="success",
-                policy_decision="allow",
+                policy_decision=pre_result.decision,
             )
 
         await call_next()
@@ -192,11 +204,20 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
                         "result_preview": result_summary,
                         "read_file_count": state.read_file_count,
                         "poisoned_context": state.poisoned_context,
+                        "reason": post_result.reason,
                     },
-                    decision="allow",
+                    decision=post_result.decision,
+                    threat_class=(
+                        _threat_class_for_reason(post_result.reason)
+                        if not post_result.allowed
+                        else None
+                    ),
+                    session_id=ctx.session_id,
+                    action_id=action_id,
+                    intervention_point="post_tool_call",
                 ),
-                outcome="success",
-                policy_decision="allow",
+                outcome="success" if post_result.allowed else "denied",
+                policy_decision=post_result.decision,
             )
 
 
@@ -216,5 +237,6 @@ def _threat_class_for_reason(reason: str) -> str:
         "delegation_unsigned": "T7",
         "tool_output_poisoned": "T11",
         "tool_output_blocked": "T10",
+        "context_thread_poisoned": "T5",
     }
     return mapping.get(reason, "")

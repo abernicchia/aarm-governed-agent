@@ -123,19 +123,53 @@ def enrich_audit_data(
     *,
     decision: str | None = None,
     threat_class: str | None = None,
+    session_id: str | None = None,
+    action_id: str | None = None,
+    intervention_point: str | None = None,
 ) -> dict[str, Any]:
-    """Add AARM-interoperable telemetry fields for Scenario 11."""
+    """Add AARM-interoperable telemetry fields (S11) and policy-context evidence (S29/S30).
+
+    ``aarm.decision`` is set once: a decision already stamped by the middleware
+    (``modify``, ``step_up``, ``defer``) is not overwritten by the audit log's
+    generic enrichment. ``aarm.action_id`` + ``aarm.intervention_point`` mark a
+    decision record, so a batch export can prove one decision per action (S31).
+    """
     payload = dict(data or {})
-    if decision:
+    if decision and "aarm.decision" not in payload:
         payload["aarm.decision"] = decision
     if threat_class:
         payload["aarm.threat_class"] = threat_class
+    if action_id:
+        payload["aarm.action_id"] = action_id
+    if intervention_point:
+        payload["aarm.intervention_point"] = intervention_point
     payload["agent.id"] = payload.get("agent.id") or _current_agent_id()
     bound = _audit_context.get()
     if bound and bound.delegated_from:
         payload["delegated_from"] = bound.delegated_from
         payload["executed_by"] = bound.agent_did
+    _attach_policy_context(payload, session_id)
     return payload
+
+
+def _attach_policy_context(payload: dict[str, Any], session_id: str | None) -> None:
+    """Embed what policy saw (intent, prior actions, drift) so receipts are self-evidencing."""
+    if "policy_context" in payload:
+        return
+    try:
+        from governance_session import peek_policy_context
+
+        bound = _audit_context.get()
+        sid = session_id or (bound.session_id if bound else None) or resolve_session_id()
+        context = peek_policy_context(sid)
+    except Exception:
+        return
+    if context is None:
+        return
+    payload["policy_context"] = context
+    # Flat copies stay queryable in OTEL / Log Analytics, where nested values become strings.
+    payload["aarm.drift_score"] = context["drift_score"]
+    payload["aarm.message_count"] = context["message_count"]
 
 
 def stamp_agent_id(payload: dict[str, Any], agent_did: str) -> dict[str, Any]:

@@ -46,6 +46,12 @@ class SessionState:
     drift_score: float = 0.0
     delegation_token: str | None = None
     delegation_verified: bool = False
+    # S29: total turns seen (the thread itself is truncated to the last 20).
+    message_count: int = 0
+    # S30: one point per intercepted tool call (never truncated by the thread cap).
+    drift_timeline: list[dict[str, Any]] = field(default_factory=list)
+    # S31: set while a DEFER is waiting for the missing context.
+    pending_defer: dict[str, Any] | None = None
 
     def apply_env_defaults(self) -> None:
         if self.session_intent is None:
@@ -79,8 +85,36 @@ class SessionState:
         if not text:
             return
         self.conversation_thread.append({"role": role, "text": str(text)[:500]})
+        self.message_count += 1
         if len(self.conversation_thread) > 20:
             self.conversation_thread = self.conversation_thread[-20:]
+
+    def record_drift_point(self, tool_name: str, decision: str) -> dict[str, Any]:
+        """Append the drift score computed for one intercepted tool call (S30)."""
+        point = {
+            "seq": len(self.drift_timeline) + 1,
+            "tool": tool_name,
+            "drift_score": self.drift_score,
+            "intent_drift_score": self.intent_drift_score,
+            "semantic_drift_score": self.semantic_drift_score,
+            "decision": decision,
+        }
+        self.drift_timeline.append(point)
+        return point
+
+    def policy_context(self) -> dict[str, Any]:
+        """Evidence that policy saw intent, history and drift (S29/S30); goes into receipts."""
+        return {
+            "intent": self.session_intent or "",
+            "prior_actions": [entry["tool"] for entry in self.action_history],
+            "action_count": len(self.action_history),
+            "message_count": self.message_count,
+            "read_file_count": self.read_file_count,
+            "poisoned_context": self.poisoned_context,
+            "drift_score": self.drift_score,
+            "intent_drift_score": self.intent_drift_score,
+            "semantic_drift_score": self.semantic_drift_score,
+        }
 
     def record_tool_completion(self, tool_name: str, result: Any, *, args: dict | None = None) -> None:
         self.prior_tools.append(tool_name)
@@ -131,6 +165,14 @@ def get_session_state(session_id: str | None) -> SessionState:
             _SESSIONS[key] = state
         state.apply_env_defaults()
         return state
+
+
+def peek_policy_context(session_id: str | None) -> dict[str, Any] | None:
+    """Return the session's audit evidence without creating a session."""
+    key = session_id or "default-session"
+    with _LOCK:
+        state = _SESSIONS.get(key)
+        return None if state is None else state.policy_context()
 
 
 def reset_session_state(session_id: str | None = None) -> None:
