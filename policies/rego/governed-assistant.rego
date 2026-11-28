@@ -115,6 +115,34 @@ delegation_verified if {
 	ctx.delegation_verified == true
 }
 
+# Phase 2 verifies delegation tokens; Phase 1 does not, so only the shell is gated there.
+delegation_enforced if {
+	ctx := governance_ctx
+	ctx.delegation_enforced == true
+}
+
+# The delegation gate covers every tool when tokens are verified, and the shell always.
+delegation_gate_applies if {
+	input.tool.name == "shell_execute"
+}
+
+delegation_gate_applies if {
+	delegation_enforced
+}
+
+# The verified token's scope names the tool (or "*").
+delegation_scope_covers(name) if {
+	ctx := governance_ctx
+	some granted in ctx.delegation_scope
+	granted == name
+}
+
+delegation_scope_covers(_) if {
+	ctx := governance_ctx
+	some granted in ctx.delegation_scope
+	granted == "*"
+}
+
 drift_score := score if {
 	ctx := governance_ctx
 	score := ctx.drift_score
@@ -250,7 +278,7 @@ default verdict := {"decision": "allow"}
 
 verdict := v if {
 	input.intervention_point == "pre_tool_call"
-	# Scenario 7 (rogue detection) needs >10 tool calls in one session.
+	# Rogue detection (entropy needs 10+ tool calls in one session) must not be cut off by this budget.
 	v := budgets.deny_if_budget_exceeded({"tool_call_count": 50, "token_count": 4096})
 	v.decision == "deny"
 }
@@ -292,6 +320,7 @@ else := {
 }
 
 # ── Phase 2 / Scenario 26 — Unsigned delegation chain (T7, R6) ───────────────
+# Any tool, once a delegation is claimed and not verified (the shell is gated in Phase 1 too).
 
 else := {
 	"decision": "deny",
@@ -301,7 +330,22 @@ else := {
 	input.intervention_point == "pre_tool_call"
 	delegated_from != ""
 	not delegation_verified
-	input.tool.name == "shell_execute"
+	delegation_gate_applies
+}
+
+# ── Phase 2 / Scenario 26 — Delegation scope does not cover the tool (T2, R6) ─
+# A valid signature is not enough: the token must authorize the tool being called.
+
+else := {
+	"decision": "deny",
+	"reason": "delegation_scope_insufficient",
+	"message": sprintf("Delegation token does not authorize tool '%s'", [input.tool.name]),
+} if {
+	input.intervention_point == "pre_tool_call"
+	delegated_from != ""
+	delegation_verified
+	delegation_enforced
+	not delegation_scope_covers(input.tool.name)
 }
 
 # ── Scenario 12 — Unknown / unregistered tool (R1) ───────────────────────────

@@ -9,6 +9,7 @@ from governance_credentials import bootstrap_credential_vault, resolve_credentia
 from governance_drift import combined_drift_score, compute_semantic_drift
 from governance_identity import (
     bootstrap_identities,
+    delegation_scope,
     delegation_token,
     extract_delegation_token,
     get_agent_did,
@@ -102,15 +103,25 @@ def enrich_session_for_input(state: SessionState, *, allowed_tools: list[str]) -
     if state.delegated_from and not state.delegation_verified:
         token = state.delegation_token
         auto = os.getenv("GOVERNANCE_DELEGATION_AUTO", "1").lower() not in ("0", "false", "no")
-        if token and verify_delegation_token(token):
-            state.delegation_verified = True
-        elif auto and state.delegated_from in {"research-agent", "research agent"}:
-            state.delegation_token = delegation_token("read_file,http_request")
-            state.delegation_verified = verify_delegation_token(state.delegation_token)
+        verified = _accept_delegation_token(state, token) if token else False
+        if not verified and auto and state.delegated_from in {"research-agent", "research agent"}:
+            # Demo token (default mode only): it authorizes every catalog tool, so default mode
+            # does not restrict a delegated session. Strict mode (AUTO=0) never reaches this branch.
+            _accept_delegation_token(state, delegation_token(",".join(allowed_tools)), store=True)
+
+
+def _accept_delegation_token(state: SessionState, token: str, *, store: bool = False) -> bool:
+    """Verify ``token`` and record the result and the tools it authorizes on the session."""
+    if store:
+        state.delegation_token = token
+    verified = verify_delegation_token(token)
+    state.delegation_verified = verified
+    state.delegation_scope = delegation_scope(token) if verified else []
+    return verified
 
 
 def ingest_delegation_from_message(state: SessionState, text: str) -> None:
     token = extract_delegation_token(text)
     if token:
         state.delegation_token = token
-        state.delegation_verified = verify_delegation_token(token)
+        _accept_delegation_token(state, token)

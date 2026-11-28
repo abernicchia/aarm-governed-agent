@@ -199,6 +199,17 @@ def verify_delegation_token(token: str, *, executor_did: str | None = None) -> b
     return verify_identity_signature(research, payload, signature)
 
 
+def delegation_scope(token: str) -> list[str]:
+    """Tools a token authorizes (its comma-separated ``scope``). Call only after it verified."""
+    parsed = parse_delegation_token(token)
+    if parsed is None:
+        return []
+    scope = parsed[0].get("scope")
+    if not isinstance(scope, str):
+        return []
+    return [item.strip() for item in scope.split(",") if item.strip()]
+
+
 def extract_delegation_token(text: str) -> str | None:
     if not text:
         return None

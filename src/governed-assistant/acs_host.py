@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Mapping
@@ -42,6 +43,33 @@ class HostContext:
     session_id: str
     call_count: int = 0
     total_tokens: int = 0
+
+
+class SessionHostContexts:
+    """One `HostContext` per session id, resolved on every request.
+
+    A middleware lives as long as the host process, but sessions come and go. If it kept a
+    single `HostContext` built on its first request, every later session would reuse that
+    session's id, and with it the governance state keyed on it (intent, read counts, poison
+    flags, pending DEFER) and the tool-call budget. Resolving the id per request keeps those
+    separate. When no session id is available, one fixed fallback id is used for the life of
+    the instance, which is the single-session behaviour the offline tests rely on.
+    """
+
+    def __init__(self, *, agent_id: str, fallback_prefix: str) -> None:
+        self._agent_id = agent_id
+        self._fallback_session_id = f"{fallback_prefix}-{int(time.time())}"
+        self._contexts: dict[str, HostContext] = {}
+        self._lock = threading.Lock()
+
+    def for_session(self, session_id: str | None) -> HostContext:
+        key = session_id or self._fallback_session_id
+        with self._lock:
+            ctx = self._contexts.get(key)
+            if ctx is None:
+                ctx = HostContext(agent_id=self._agent_id, session_id=key)
+                self._contexts[key] = ctx
+            return ctx
 
 
 @dataclass

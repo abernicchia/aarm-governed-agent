@@ -228,8 +228,15 @@ class EvidenceStack:
         return self.modules.get_session_state(self.session_id)
 
 
-def build_evidence_stack(*, session_id: str, auto_approve: bool = True) -> EvidenceStack:
-    """Policy + guard middleware sharing one kernel, session and capturing audit log."""
+def build_evidence_stack(
+    *, session_id: str, auto_approve: bool = True, pin_session: bool = True
+) -> EvidenceStack:
+    """Policy + guard middleware sharing one kernel, session and capturing audit log.
+
+    With ``pin_session`` (the default) both middlewares use ``session_id`` for every call.
+    Pass ``pin_session=False`` to let them resolve the session per request, as the live host
+    does (from the bound audit context), which is what the session-isolation test needs.
+    """
     m = _imports()
 
     class _CapturingAuditLog(m.GovernedAuditLog):
@@ -248,9 +255,10 @@ def build_evidence_stack(*, session_id: str, auto_approve: bool = True) -> Evide
     audit = _CapturingAuditLog()
     policy = m.StreamingGovernancePolicyMiddleware(kernel=kernel, audit_log=audit, agent_id=m.AGENT_ID)
     guard = m.GovernedCapabilityGuardMiddleware(kernel=kernel, audit_log=audit, agent_id=m.AGENT_ID)
-    host_ctx = m.HostContext(agent_id=m.AGENT_ID, session_id=session_id)
-    policy._host_ctx = host_ctx  # noqa: SLF001 - same session for input and tool points
-    guard._host_ctx = host_ctx  # noqa: SLF001
+    if pin_session:
+        host_ctx = m.HostContext(agent_id=m.AGENT_ID, session_id=session_id)
+        policy._host_ctx = host_ctx  # noqa: SLF001 - same session for input and tool points
+        guard._host_ctx = host_ctx  # noqa: SLF001
     return EvidenceStack(policy=policy, guard=guard, audit=audit, session_id=session_id, modules=m)
 
 

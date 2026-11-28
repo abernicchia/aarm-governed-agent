@@ -32,6 +32,16 @@ def redact_aws_keys(text: str) -> str:
     return _AWS_KEY.sub("[REDACTED]", text)
 
 
+def _delegation_enforced() -> bool:
+    """True when Phase 2 verifies delegation tokens (imported late: governance_phase2 imports this module)."""
+    try:
+        from governance_phase2 import phase2_enabled
+
+        return phase2_enabled()
+    except Exception:
+        return False
+
+
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, SessionState] = {}
 
@@ -56,6 +66,8 @@ class SessionState:
     drift_score: float = 0.0
     delegation_token: str | None = None
     delegation_verified: bool = False
+    # S26: tools the verified token authorizes (``*`` = any). Empty until a token verifies.
+    delegation_scope: list[str] = field(default_factory=list)
     # S29: total turns seen (the thread itself is truncated to the last 20).
     message_count: int = 0
     # S30: one point per intercepted tool call (never truncated by the thread cap).
@@ -124,6 +136,11 @@ class SessionState:
             "drift_score": self.drift_score,
             "intent_drift_score": self.intent_drift_score,
             "semantic_drift_score": self.semantic_drift_score,
+            # S26: shows whether a delegation was claimed, whether a token came with it, and whether it verified.
+            "delegated_from": self.delegated_from or "",
+            "delegation_token_present": bool(self.delegation_token),
+            "delegation_verified": self.delegation_verified,
+            "delegation_scope": list(self.delegation_scope),
         }
 
     def record_tool_completion(self, tool_name: str, result: Any, *, args: dict | None = None) -> None:
@@ -163,6 +180,9 @@ class SessionState:
             "drift_score": self.drift_score,
             "delegation_verified": self.delegation_verified,
             "delegation_token_present": bool(self.delegation_token),
+            "delegation_scope": list(self.delegation_scope),
+            # Phase 1 has no token check, so only the shell rule applies there (S10).
+            "delegation_enforced": _delegation_enforced(),
         }
 
 

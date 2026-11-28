@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from typing import Any, Awaitable, Callable
 
@@ -17,7 +16,7 @@ from agent_framework import (
     ResponseStream,
 )
 
-from acs_host import HostContext
+from acs_host import HostContext, SessionHostContexts
 from governance_audit import enrich_audit_data, resolve_session_id
 from governance_kernel import GovernanceKernel
 from governance_session import get_session_state, redact_aws_keys
@@ -112,15 +111,15 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
         self.kernel = kernel
         self.audit_log = audit_log
         self._agent_id = agent_id
+        # Offline tests and drivers pin one context here to share a session across middleware.
         self._host_ctx: HostContext | None = None
+        self._contexts = SessionHostContexts(agent_id=agent_id, fallback_prefix="maf-mw")
 
-    def _host_context(self) -> HostContext:
-        if self._host_ctx is None:
-            self._host_ctx = HostContext(
-                agent_id=self._agent_id,
-                session_id=resolve_session_id() or f"maf-mw-{int(time.time())}",
-            )
-        return self._host_ctx
+    def _host_context(self, context: Any | None = None) -> HostContext:
+        """The context for this request's own session; a pinned context wins."""
+        if self._host_ctx is not None:
+            return self._host_ctx
+        return self._contexts.for_session(resolve_session_id(context))
 
     async def process(
         self,
@@ -136,7 +135,7 @@ class StreamingGovernancePolicyMiddleware(AgentMiddleware):
             last_msg = messages[-1]
             last_message_text = _message_text(last_msg) or str(last_msg)
 
-        ctx = self._host_context()
+        ctx = self._host_context(context)
 
         # Foundry passes prior turns plus the new user message. Redact secrets
         # in the full context so stale session history cannot leak credentials.

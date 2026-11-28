@@ -20,18 +20,22 @@ def get_credential_vault() -> CredentialVault:
 
 
 def bootstrap_credential_vault(*, agent_did: str) -> CredentialVault:
+    """Bind database capabilities for the agent (S24, least privilege).
+
+    ``database:read`` is always bound. ``database:write`` is bound only when
+    ``GOVERNANCE_DB_WRITE_TOKEN`` is set, so write scope is an explicit grant
+    and not the default.
+    """
     vault = get_credential_vault()
     vault.put("db-read", os.getenv("GOVERNANCE_DB_READ_TOKEN", "readonly-db-token"))
-    vault.put("db-write", os.getenv("GOVERNANCE_DB_WRITE_TOKEN", "write-db-token"))
-    vault.register_profile(
-        CredentialProfile(
-            agent_did=agent_did,
-            bindings={
-                "database:read": "db-read",
-                "database:write": "db-write",
-            },
-        )
-    )
+    bindings = {"database:read": "db-read"}
+
+    write_token = os.getenv("GOVERNANCE_DB_WRITE_TOKEN", "").strip()
+    if write_token:
+        vault.put("db-write", write_token)
+        bindings["database:write"] = "db-write"
+
+    vault.register_profile(CredentialProfile(agent_did=agent_did, bindings=bindings))
     return vault
 
 

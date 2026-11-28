@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from typing import Any, Awaitable, Callable
 
 from agent_framework import Content, FunctionMiddleware, MiddlewareTermination
 from agent_os.integrations.maf_adapter import AuditTrailMiddleware
 
-from acs_host import HostContext
+from acs_host import HostContext, SessionHostContexts
 from governance_audit import (
     enrich_audit_data,
     resolve_session_id,
@@ -79,10 +78,6 @@ def tool_result_text(result: Any) -> str:
     return str(result)
 
 
-def _resolved_session_id(fallback_prefix: str) -> str:
-    return resolve_session_id() or f"{fallback_prefix}-{int(time.time())}"
-
-
 class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
     """ACS `pre_tool_call` / `post_tool_call` guard with session context and tool tracking."""
 
@@ -96,15 +91,15 @@ class GovernedCapabilityGuardMiddleware(FunctionMiddleware):
         self.kernel = kernel
         self.audit_log = audit_log
         self._agent_id = agent_id
+        # Offline tests and drivers pin one context here to share a session across middleware.
         self._host_ctx: HostContext | None = None
+        self._contexts = SessionHostContexts(agent_id=agent_id, fallback_prefix="maf-cap")
 
     def _host_context(self) -> HostContext:
-        if self._host_ctx is None:
-            self._host_ctx = HostContext(
-                agent_id=self._agent_id,
-                session_id=_resolved_session_id("maf-cap"),
-            )
-        return self._host_ctx
+        """The context for this request's own session; a pinned context wins."""
+        if self._host_ctx is not None:
+            return self._host_ctx
+        return self._contexts.for_session(resolve_session_id())
 
     async def process(
         self,
@@ -261,6 +256,7 @@ def _threat_class_for_reason(reason: str) -> str:
         "semantic_drift_blocked": "T4",
         "intent_drift_blocked": "T4",
         "delegation_unsigned": "T7",
+        "delegation_scope_insufficient": "T2",
         "tool_output_poisoned": "T11",
         "tool_output_blocked": "T10",
         "context_thread_poisoned": "T5",

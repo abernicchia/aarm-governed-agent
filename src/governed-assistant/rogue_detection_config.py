@@ -1,4 +1,4 @@
-"""Rogue-detection tuning for AARM Scenario 7 demos."""
+"""Rogue-detection tuning for the agent's behavioural anomaly detector."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def rogue_demo_mode_enabled() -> bool:
 
 
 def build_demo_rogue_detector() -> Any:
-    """Detector tuned for the multi-turn Scenario 7 script."""
+    """Detector tuned for demo sessions: a short warmup, then a burst of tool calls."""
     from agent_sre.anomaly.rogue_detector import (
         RiskLevel,
         RogueAgentDetector,
@@ -32,7 +32,7 @@ def build_demo_rogue_detector() -> Any:
     return RogueAgentDetector(
         config=RogueDetectorConfig(
             # Stock thresholds need long sessions (5+ minute windows, entropy >3.5).
-            # Tuned for run-scenario-7.sh: forced calculator warmup + first spam turn.
+            # Tuned for a short session: calculator warmup, then a burst of tool calls.
             frequency_window_seconds=30.0,
             frequency_z_threshold=1.0,
             frequency_min_windows=2,

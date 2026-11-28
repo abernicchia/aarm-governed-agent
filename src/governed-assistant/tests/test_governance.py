@@ -544,7 +544,7 @@ def test_rogue_detection_does_not_quarantine_first_allowed_tool(tool_name: str) 
     assert assessment.quarantine_recommended is False
 
 
-def test_rogue_detection_still_quarantines_scenario_7_spam() -> None:
+def test_rogue_detection_quarantines_tool_call_burst() -> None:
     detector = build_demo_rogue_detector()
     agent_id = "governed-assistant"
     detector.register_capability_profile(agent_id, AGENT_BASELINE_TOOLS)
@@ -1189,3 +1189,73 @@ def test_scenario_31_verifier_flags_missing_duplicate_and_unauthorized_decisions
 
     only_post = [record("a5", "post_tool_call", "allow")]
     assert any("pre-execution" in p for p in verify_one_decision_per_action(only_post))
+
+
+# ── Session isolation: one host process, many sessions ───────────────────────────
+
+
+def test_session_host_contexts_are_per_session_with_a_stable_fallback() -> None:
+    from acs_host import SessionHostContexts
+
+    contexts = SessionHostContexts(agent_id="governed-assistant", fallback_prefix="maf-test")
+
+    first = contexts.for_session("sess-1")
+    other = contexts.for_session("sess-2")
+    assert first is contexts.for_session("sess-1"), "the same session keeps its counters"
+    assert other is not first and other.session_id == "sess-2"
+
+    first.call_count = 3
+    assert contexts.for_session("sess-2").call_count == 0, "counters are not shared across sessions"
+
+    fallback = contexts.for_session(None)
+    assert fallback is contexts.for_session(None), "no session id resolves to one fixed fallback"
+    assert fallback.session_id.startswith("maf-test-")
+
+
+def test_session_state_is_isolated_per_session_id() -> None:
+    """A new session must not inherit intent or counters from an earlier one on the same host.
+
+    Both middlewares used to build their host context once, on the first request, so every
+    later session reused that first session's id and shared its intent, read counts and budget.
+    """
+    from governance_evidence import build_evidence_stack
+    from governance_session import get_session_state, reset_session_state
+
+    for session_id in ("iso-A", "iso-B"):
+        reset_session_state(session_id)
+    # Unpinned: the middlewares resolve the session per request, as the live host does.
+    stack = build_evidence_stack(session_id="unused", pin_session=False)
+
+    async def in_session(session_id: str, work):
+        token = set_governance_audit_context(
+            session_id=session_id, agent_did="did:test:agent", agent_name="Governed Assistant"
+        )
+        try:
+            return await work()
+        finally:
+            reset_governance_audit_context(token)
+
+    read = lambda: stack.run_tool("read_file", {"path": "employees.csv"})  # noqa: E731
+
+    async def session_a_declares_read_only_intent() -> bool:
+        assert await stack.run_input("INTENT: read-only calculator and time only. What is 2 + 2?")
+        assert stack.guard._host_context().session_id == "iso-A"  # noqa: SLF001
+        return await read()
+
+    async def session_b_has_no_intent() -> bool:
+        assert await stack.run_input("Read employees.csv")
+        assert stack.guard._host_context().session_id == "iso-B"  # noqa: SLF001
+        return await read()
+
+    a_read = asyncio.run(in_session("iso-A", session_a_declares_read_only_intent))
+    b_read = asyncio.run(in_session("iso-B", session_b_has_no_intent))
+    a_again = asyncio.run(in_session("iso-A", read))
+
+    assert a_read is False and a_again is False, "session A keeps its read-only intent"
+    assert b_read is True, "session B does not inherit A's intent"
+    assert "read-only" in (get_session_state("iso-A").session_intent or "")
+    assert get_session_state("iso-B").session_intent is None
+    assert get_session_state("iso-A").read_file_count == 0
+    assert get_session_state("iso-B").read_file_count == 1
+    for session_id in ("iso-A", "iso-B"):
+        reset_session_state(session_id)
